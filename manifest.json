@@ -1,0 +1,10 @@
+{
+  "display_name": "SillyTavern-LorebookOrdering",
+  "loading_order": 100,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "author": "aikohanasaki",
+  "version": "1.0.0",
+  "description": "Adds lorebook-level priority and budget management to World Info. Allows complete control over which lorebooks activate first and how much context budget each lorebook can consume."
+}
