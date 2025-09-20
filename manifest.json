@@ -1,6 +1,6 @@
 {
   "display_name": "SillyTavern-LorebookOrdering",
-  "loading_order": 100,
+  "loading_order": 10,
   "requires": [],
   "optional": [],
   "js": "index.js",

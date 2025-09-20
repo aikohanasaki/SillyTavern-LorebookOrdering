@@ -1,22 +1,11 @@
 import { event_types, eventSource } from '../../../events.js';
 import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
-import {
-    loadWorldInfo,
-    saveWorldInfo,
-    world_names
-} from '../../../world-info.js';
-import { callGenericPopup, POPUP_TYPE, Popup } from '../../../popup.js';
-import { debounce } from '../../../utils.js';
+import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
+import { POPUP_TYPE, Popup } from '../../../popup.js';
+import { stopGeneration } from '../../../../script.js';
 
-// Note: toastr is available globally in SillyTavern
-
-// Extension constants
-const EXTENSION_NAME = 'lorebook_ordering';
-const EXTENSION_DISPLAY_NAME = 'Lorebook Ordering';
-
-
-// UI element selectors
+const EXTENSION_NAME = 'stlo';
 const SELECTORS = {
     WORLD_INFO_SEARCH: 'world_info_search',
     LOREBOOK_ORDERING_BUTTON: 'lorebook_ordering_button',
@@ -24,9 +13,7 @@ const SELECTORS = {
     LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select',
     LOREBOOK_BUDGET_MODE: 'lorebook_budget_mode',
     LOREBOOK_BUDGET_VALUE: 'lorebook_budget_value',
-    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container',
-    BUDGET_HINT_TEXT: 'budget_hint_text',
-    BUDGET_VALUE_HINT: 'budget_value_hint'
+    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container'
 };
 
 // Default settings for lorebooks
@@ -41,36 +28,22 @@ let eventListeners = [];
 
 // Priority constants
 const PRIORITY_LEVELS = {
-    BACKGROUND: 1,
+    LOWEST: 1,
     LOW: 2,
     DEFAULT: 3,
     HIGH: 4,
-    CRITICAL: 5
+    HIGHEST: 5
 };
-
 
 // Extension state tracking
 const EXTENSION_STATE = {
-    isReady: false,
     modalOpen: false,
-    modalLock: false, // Atomic lock for modal operations
-    priorityCache: new Map(), // Cache entries: {priority, timestamp}
-    priorityCacheMaxSize: 100,
-    priorityCacheTTL: 5 * 60 * 1000, // 5 minutes
-    lastCacheClean: 0,
-    cacheCleanThrottle: 30 * 1000, // 30 seconds
-    cacheCleanInProgress: false, // Mutex for cache cleanup
-    budgetManager: null,
     pendingAnimationFrame: null,
-    uiElements: new Map() // Track UI elements for cleanup
+    isGenerating: false,
+    generationsSinceChatChange: 0
 };
 
 // Utility functions
-
-
-
-
-
 
 function cleanupListeners(listeners, listenerArray) {
     listeners.forEach(({ source, event, handler }) => {
@@ -83,118 +56,6 @@ function cleanupListeners(listeners, listenerArray) {
     listenerArray.length = 0;
 }
 
-function calculatePercentageBudget(budgetValue, totalValue, budgetType) {
-    // Inline percentage validation
-    if (typeof budgetValue !== 'number' || isNaN(budgetValue) || budgetValue < 1 || budgetValue > 100) {
-        return null;
-    }
-    const calculatedBudget = Math.floor((budgetValue / 100) * totalValue);
-
-    return {
-        allocated: Math.max(calculatedBudget, 0),
-        description: `${budgetValue}% of ${budgetType} (${calculatedBudget} tokens)`
-    };
-}
-
-// Extension initialization
-jQuery(async () => {
-
-    try {
-        // Clean up any previous instance
-        if (window[`${EXTENSION_NAME}_cleanup`]) {
-            try {
-                await window[`${EXTENSION_NAME}_cleanup`]();
-            } catch (error) {
-                console.warn('Error cleaning up previous instance:', error);
-            }
-        }
-
-        // Initialize extension
-        const context = getContext();
-        if (!context) {
-            throw new Error('Failed to get SillyTavern context');
-        }
-
-        // Initialize extension settings if not present
-        if (!context.extensionSettings) {
-            context.extensionSettings = {};
-        }
-
-        if (!context.extensionSettings[EXTENSION_NAME]) {
-            context.extensionSettings[EXTENSION_NAME] = {};
-        }
-
-        // Set up event handlers
-        setupEventHandlers();
-
-        // Set up UI
-        addLorebookOrderingButton();
-
-        // Register cleanup handlers (remove any existing ones first)
-        const asyncCleanup = () => cleanup().catch(error =>
-            console.error('Cleanup error:', error)
-        );
-
-        // Clean up any existing cleanup handlers with consistent references
-        const existingAsyncCleanup = window[`${EXTENSION_NAME}_asyncCleanup`];
-        const existingCleanup = window[`${EXTENSION_NAME}_cleanup`];
-
-        if (existingAsyncCleanup) {
-            window.removeEventListener('beforeunload', existingAsyncCleanup);
-            window.removeEventListener('unload', existingAsyncCleanup);
-        }
-
-        // Add new async cleanup handlers
-        window.addEventListener('beforeunload', asyncCleanup);
-        window.addEventListener('unload', asyncCleanup);
-        window[`${EXTENSION_NAME}_asyncCleanup`] = asyncCleanup;
-        window[`${EXTENSION_NAME}_cleanup`] = cleanup;
-
-        // Mark extension as ready
-        EXTENSION_STATE.isReady = true;
-
-    } catch (error) {
-        console.error('Failed to load extension:', error);
-
-        // Attempt graceful degradation
-        try {
-
-            // Mark extension as partially ready for cleanup purposes
-            EXTENSION_STATE.isReady = true;
-
-            // Try to set up basic UI if possible
-            addLorebookOrderingButton();
-
-            // Try to set up at least basic event handlers for core functionality
-            try {
-                const handler = (data) => {
-                    console.warn('Processing entries in degraded mode');
-                    // Only do basic sorting without advanced features
-                    handleWorldInfoEntriesLoaded(data);
-                };
-                eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
-                eventListeners.push({
-                    source: eventSource,
-                    event: event_types.WORLDINFO_ENTRIES_LOADED,
-                    handler: handler
-                });
-            } catch (handlerError) {
-            }
-
-            // Register basic cleanup
-            window[`${EXTENSION_NAME}_cleanup`] = cleanup;
-
-        } catch (recoveryError) {
-            console.error('Recovery failed:', recoveryError);
-            // Show user notification about extension failure
-            if (typeof toastr !== 'undefined') {
-                toastr.error(`Lorebook Ordering extension failed to load. Check console for details.`, 'Extension Error');
-            }
-        }
-    }
-});
-
-
 /**
  * Set up event handlers for world info integration
  */
@@ -206,54 +67,29 @@ function setupEventHandlers() {
     const handler = (data) => handleWorldInfoEntriesLoaded(data);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
 
+    // Track generation state to only show warnings during actual generation
+    const generationStartHandler = () => {
+        EXTENSION_STATE.isGenerating = true;
+        EXTENSION_STATE.generationsSinceChatChange++;
+    };
+    const generationStopHandler = () => { EXTENSION_STATE.isGenerating = false; };
+    const generationEndHandler = () => { EXTENSION_STATE.isGenerating = false; };
+    const chatChangedHandler = () => { EXTENSION_STATE.generationsSinceChatChange = 0; };
+
+    eventSource.on(event_types.GENERATION_STARTED, generationStartHandler);
+    eventSource.on(event_types.GENERATION_STOPPED, generationStopHandler);
+    eventSource.on(event_types.GENERATION_ENDED, generationEndHandler);
+    eventSource.on(event_types.CHAT_CHANGED, chatChangedHandler);
+
     // Track for cleanup
-    eventListeners.push({
-        source: eventSource,
-        event: event_types.WORLDINFO_ENTRIES_LOADED,
-        handler: handler
-    });
-
+    eventListeners.push(
+        { source: eventSource, event: event_types.WORLDINFO_ENTRIES_LOADED, handler: handler },
+        { source: eventSource, event: event_types.GENERATION_STARTED, handler: generationStartHandler },
+        { source: eventSource, event: event_types.GENERATION_STOPPED, handler: generationStopHandler },
+        { source: eventSource, event: event_types.GENERATION_ENDED, handler: generationEndHandler },
+        { source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedHandler }
+    );
 }
-
-
-/**
- * Clean up all resources
- */
-async function cleanup() {
-    try {
-        // Extension unloading
-        if (EXTENSION_STATE.isReady) {
-            // Extension was ready, now unloading
-        }
-
-        // Clean up all state
-        EXTENSION_STATE.isReady = false;
-        EXTENSION_STATE.modalOpen = false;
-        EXTENSION_STATE.modalLock = false;
-        EXTENSION_STATE.priorityCache.clear();
-        EXTENSION_STATE.budgetManager = null;
-
-        // Clean up UI elements
-        for (const [elementId, elementData] of EXTENSION_STATE.uiElements.entries()) {
-            if (elementData.element && elementData.clickHandler) {
-                elementData.element.removeEventListener('click', elementData.clickHandler);
-            }
-        }
-        EXTENSION_STATE.uiElements.clear();
-
-        // Cancel any pending animation frames
-        if (EXTENSION_STATE.pendingAnimationFrame) {
-            cancelAnimationFrame(EXTENSION_STATE.pendingAnimationFrame);
-            EXTENSION_STATE.pendingAnimationFrame = null;
-        }
-
-        cleanupListeners(eventListeners, eventListeners);
-
-    } catch (error) {
-        console.error('Error during cleanup:', error);
-    }
-}
-
 
 /**
  * Add the lorebook ordering button to the world info panel
@@ -271,94 +107,41 @@ function addLorebookOrderingButton() {
         const button = document.createElement('div');
         button.id = SELECTORS.LOREBOOK_ORDERING_BUTTON;
         button.className = 'menu_button fa-solid fa-bars-staggered';
-        button.title = 'Configure Lorebook Priority & Budget';
+        button.title = 'Configure STLO Priority & Budget';
 
         // Add click handler
-        const clickHandler = async () => {
+        button.addEventListener('click', async () => {
             await openLorebookSettings();
-        };
-        button.addEventListener('click', clickHandler);
-
-        // Track for cleanup
-        EXTENSION_STATE.uiElements.set(SELECTORS.LOREBOOK_ORDERING_BUTTON, {
-            element: button,
-            clickHandler: clickHandler
         });
 
-        // Validate parent node before insertion
-        const parentNode = worldInfoSearch.parentNode;
-        if (parentNode && typeof parentNode.insertBefore === 'function') {
-            // Insert before the search input
-            parentNode.insertBefore(button, worldInfoSearch);
-        } else {
-            console.error('Invalid parent node for button insertion');
-            return false;
-        }
-
+        worldInfoSearch.parentNode.insertBefore(button, worldInfoSearch);
         return true;
     };
 
-    // Try to create button immediately
+    // Try to create button immediately (in case world info panel is already open)
     if (createButton()) {
         return;
     }
 
-    // If immediate creation failed, listen for world info events
-    let listenersRemoved = false;
-    const handleWorldInfoEvent = () => {
-        if (createButton() && !listenersRemoved) {
-            // Button created successfully, remove these listeners
-            try {
-                eventSource.removeListener(event_types.WORLDINFO_UPDATED, handleWorldInfoEvent);
-                eventSource.removeListener(event_types.WORLDINFO_SETTINGS_UPDATED, handleWorldInfoEvent);
-
-                // Remove from tracking array safely
-                eventListeners = eventListeners.filter(listener =>
-                    listener.handler !== handleWorldInfoEvent
-                );
-
-                // Set flag after successful removal to prevent re-entry
-                listenersRemoved = true;
-            } catch (error) {
-                console.error('Error removing world info event listeners:', error);
+    // If immediate creation failed, wait for world info panel to be loaded
+    const handleWorldInfoLoaded = () => {
+        if (createButton()) {
+            // Button created successfully, remove this listener
+            eventSource.removeListener(event_types.WORLDINFO_UPDATED, handleWorldInfoLoaded);
+            // Also remove from tracking array
+            const index = eventListeners.findIndex(listener =>
+                listener.source === eventSource &&
+                listener.event === event_types.WORLDINFO_UPDATED &&
+                listener.handler === handleWorldInfoLoaded
+            );
+            if (index !== -1) {
+                eventListeners.splice(index, 1);
             }
         }
     };
 
-    // Listen for world info events that indicate UI is ready
-    try {
-        eventSource.on(event_types.WORLDINFO_UPDATED, handleWorldInfoEvent);
-        eventSource.on(event_types.WORLDINFO_SETTINGS_UPDATED, handleWorldInfoEvent);
-
-        // Only track listeners after successful registration
-        const worldInfoListeners = [
-            { source: eventSource, event: event_types.WORLDINFO_UPDATED, handler: handleWorldInfoEvent },
-            { source: eventSource, event: event_types.WORLDINFO_SETTINGS_UPDATED, handler: handleWorldInfoEvent }
-        ];
-        eventListeners.push(...worldInfoListeners);
-    } catch (error) {
-        console.error('Error registering world info event listeners:', error);
-    }
-
-    // Also try on APP_READY using event-driven approach instead of timeout
-    const appReadyHandler = () => {
-        // Use requestAnimationFrame for DOM readiness instead of setTimeout
-        requestAnimationFrame(() => {
-            try {
-                createButton();
-            } catch (error) {
-                console.error('Error creating button on APP_READY:', error);
-            }
-        });
-    };
-
-    try {
-        eventSource.on(event_types.APP_READY, appReadyHandler);
-        // Track the APP_READY listener for cleanup only after successful registration
-        eventListeners.push({ source: eventSource, event: event_types.APP_READY, handler: appReadyHandler });
-    } catch (error) {
-        console.error('Error registering APP_READY event listener:', error);
-    }
+    eventSource.on(event_types.WORLDINFO_UPDATED, handleWorldInfoLoaded);
+    eventListeners.push({ source: eventSource, event: event_types.WORLDINFO_UPDATED, handler: handleWorldInfoLoaded });
 }
 
 /**
@@ -367,15 +150,166 @@ function addLorebookOrderingButton() {
  */
 async function handleWorldInfoEntriesLoaded(eventData) {
     try {
+        // Check if insertion strategy is 'evenly'
+        const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
 
-        // Apply lorebook priority sorting to the arrays
-        await sortEntriesByLorebookPriority(eventData);
+        // Check if any lorebooks have special settings
+        const hasSpecialLorebooks = await checkForSpecialLorebooks(eventData);
 
-        // Apply budget management if any lorebooks have custom budget settings
-        await applyBudgetManagement(eventData);
+        // If not evenly strategy, handle warning and return
+        if (!isEvenlyStrategy) {
+            // Only show warning for user-initiated generation (skip automatic greeting generation)
+            if (hasSpecialLorebooks && EXTENSION_STATE.generationsSinceChatChange > 1) {
+                const result = await showStrategyWarning();
+                if (result === 'abort') {
+                    // User chose to stop generation to fix settings
+                    toastr.warning('Generation stopped. Please switch to "evenly" strategy for STLO to work.', 'STLO', { timeOut: 5000 });
+                    return; // Generation already stopped in the popup callback
+                }
+                if (result === 'disable') {
+                    // User chose to continue without STLO
+                    toastr.info('STLO disabled - not using "evenly" strategy', 'STLO', { timeOut: 3000 });
+                    return; // Silently disable STLO without error
+                }
+            }
+            return;
+        }
+
+        // Apply evenly strategy implementation
+
+        // Identify lorebooks with custom budgets
+        const budgetedLorebooks = await identifyBudgetedLorebooks(eventData);
+
+        // Pre-activate entries for budgeted lorebooks
+        const preActivatedEntries = await preActivateBudgetedEntries(eventData, budgetedLorebooks);
+
+        // Remove original entries from budgeted lorebooks
+        removeOriginalBudgetedEntries(eventData, budgetedLorebooks);
+
+        // Combine all arrays into globalLore with priority ordering
+        await combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLorebooks);
 
     } catch (error) {
-        console.error('Error processing world info entries:', error);
+        toastr.warning('STLO encountered an error. Disabling STLO, returning to core ST function', 'Extension Warning');
+        return;
+    }
+}
+
+/**
+ * Check if any lorebooks have special priority or budget settings
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @returns {boolean} True if any lorebook has non-default settings
+ */
+async function checkForSpecialLorebooks(eventData) {
+    try {
+        // Collect all unique lorebook names from all arrays
+        const allEntries = [
+            ...(eventData.globalLore || []),
+            ...(eventData.characterLore || []),
+            ...(eventData.chatLore || []),
+            ...(eventData.personaLore || [])
+        ];
+
+        const uniqueWorlds = new Set(allEntries.map(entry => entry.world).filter(Boolean));
+
+        if (uniqueWorlds.size === 0) {
+            return false;
+        }
+
+        // Check each lorebook for special settings
+        for (const worldName of uniqueWorlds) {
+            try {
+                const settings = await getLorebookSettings(worldName);
+
+                // Check for non-default priority
+                if (settings.priority !== null && settings.priority !== PRIORITY_LEVELS.DEFAULT) {
+                    return true;
+                }
+
+                // Check for custom budget mode
+                if (settings.budgetMode !== 'default') {
+                    return true;
+                }
+            } catch (error) {
+                console.error(`Error checking STLO settings for lorebook ${worldName}:`, error);
+            }
+        }
+
+        return false;
+    } catch (error) {
+        console.error('Error in checkForSpecialLorebooks:', error);
+        return false; // Assume no special settings on error
+    }
+}
+
+/**
+ * Show warning popup when strategy is not 'evenly' but special lorebooks exist
+ * @returns {string} 'continue' or 'disable'
+ */
+async function showStrategyWarning() {
+    return new Promise((resolve) => {
+        const warningHtml = `
+            <div style="text-align: left; line-height: 1.4;">
+                <h4>⚠️ Caution</h4>
+                <span>You have lorebooks with custom priority or budget settings, but your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
+            </div>
+        `;
+
+        const popup = new Popup(warningHtml, POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Disable STLO',
+            cancelButton: 'Stop Generation',
+            wide: true,
+            large: false,
+            onClosing: (popup) => {
+                if (popup.result === 1) { // POPUP_RESULT.AFFIRMATIVE (OK) - "Disable STLO"
+                    resolve('disable');
+                } else { // POPUP_RESULT.NEGATIVE (Cancel) - "Stop Generation"
+                    stopGeneration();
+                    resolve('abort');
+                }
+                return true; // Allow popup to close
+            }
+        });
+
+        popup.show();
+    });
+}
+
+/**
+ * Identify lorebooks with custom budget settings
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @returns {string[]} Array of lorebook names with custom budgets
+ */
+async function identifyBudgetedLorebooks(eventData) {
+    try {
+        // Collect all unique lorebook names
+        const allEntries = [
+            ...(eventData.globalLore || []),
+            ...(eventData.characterLore || []),
+            ...(eventData.chatLore || []),
+            ...(eventData.personaLore || [])
+        ];
+
+        const uniqueWorlds = new Set(allEntries.map(entry => entry.world).filter(Boolean));
+        const budgetedLorebooks = [];
+
+        // Check each lorebook for custom budget settings
+        for (const worldName of uniqueWorlds) {
+            try {
+                const settings = await getLorebookSettings(worldName);
+                if (settings.budgetMode !== 'default') {
+                    budgetedLorebooks.push(worldName);
+                }
+            } catch (error) {
+                console.warn(`Error checking budget settings for lorebook ${worldName}:`, error);
+            }
+        }
+
+
+        return budgetedLorebooks;
+    } catch (error) {
+        console.error('Error identifying budgeted lorebooks:', error);
+        return [];
     }
 }
 
@@ -387,17 +321,14 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 async function getLorebookSettings(worldName) {
     try {
         const worldData = await loadWorldInfo(worldName);
+
         if (!worldData) {
             return { ...DEFAULT_LOREBOOK_SETTINGS };
         }
 
-        // Get extension settings from world data with deeper validation
-        const extensions = worldData.extensions;
-        if (!extensions || typeof extensions !== 'object') {
-            return { ...DEFAULT_LOREBOOK_SETTINGS };
-        }
+        // Look for our extension data directly on the world data object
+        const extensionData = worldData[EXTENSION_NAME];
 
-        const extensionData = extensions[EXTENSION_NAME];
         if (!extensionData || typeof extensionData !== 'object') {
             return { ...DEFAULT_LOREBOOK_SETTINGS };
         }
@@ -417,155 +348,44 @@ async function getLorebookSettings(worldName) {
  */
 async function setLorebookSettings(worldName, settings) {
     try {
-
         const worldData = await loadWorldInfo(worldName);
+
         if (!worldData) {
             toastr.error(`Could not load settings for lorebook: ${worldName}`, 'Settings Error');
             return false;
         }
 
-
-        // Ensure extensions object exists
-        if (!worldData.extensions) {
-            worldData.extensions = {};
-        }
-
-        // Save extension settings
+        // Save extension settings directly on the world data object
         const finalSettings = { ...DEFAULT_LOREBOOK_SETTINGS, ...settings };
-        worldData.extensions[EXTENSION_NAME] = finalSettings;
-
+        worldData[EXTENSION_NAME] = finalSettings;
 
         // Save the world data back immediately
-        try {
-            await saveWorldInfo(worldName, worldData, true);
+        const saveResult = await saveWorldInfo(worldName, worldData, true);
 
-            // Use event-based verification instead of immediate reload
-            return new Promise((resolve, reject) => {
-                let isResolved = false;
-                let verifyHandler = null;
-                let verificationTimeout = null;
+        // Clear cache and verify save
+        worldInfoCache.delete(worldName);
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-                const cleanupVerification = () => {
-                    if (verifyHandler) {
-                        try {
-                            eventSource.removeListener(event_types.WORLDINFO_UPDATED, verifyHandler);
-                        } catch (error) {
-                            console.error('Error removing verification handler:', error);
-                        }
-                        verifyHandler = null;
-                    }
-                    if (verificationTimeout) {
-                        clearTimeout(verificationTimeout);
-                        verificationTimeout = null;
-                    }
-                };
+        const verifyData = await loadWorldInfo(worldName);
+        const savedSettings = verifyData?.[EXTENSION_NAME];
 
-                verificationTimeout = setTimeout(() => {
-                    if (!isResolved) {
-                        isResolved = true;
-                        cleanupVerification();
-                        const timeoutError = new Error(`Settings save timeout for ${worldName}`);
-                        toastr.error(timeoutError.message, 'Save Error');
-                        reject(timeoutError);
-                    }
-                }, 5000);
-
-                verifyHandler = async (eventWorldName, eventWorldData) => {
-                    try {
-                        // Check if this is the world we're waiting for
-                        if (eventWorldName === worldName && !isResolved) {
-                            isResolved = true;
-                            cleanupVerification();
-
-                            const savedSettings = eventWorldData?.extensions?.[EXTENSION_NAME];
-                            if (savedSettings && JSON.stringify(savedSettings) === JSON.stringify(finalSettings)) {
-                                resolve(true);
-                            } else {
-                                const verificationError = new Error(`Settings verification failed for ${worldName}`);
-                                toastr.error(verificationError.message, 'Save Error');
-                                reject(verificationError);
-                            }
-                        }
-                    } catch (error) {
-                        if (!isResolved) {
-                            isResolved = true;
-                            cleanupVerification();
-                            reject(error);
-                        }
-                    }
-                };
-
-                try {
-                    // Use on instead of once so we can manually remove it
-                    eventSource.on(event_types.WORLDINFO_UPDATED, verifyHandler);
-                } catch (error) {
-                    isResolved = true;
-                    cleanupVerification();
-                    reject(error);
-                }
+        if (savedSettings && JSON.stringify(finalSettings) === JSON.stringify(savedSettings)) {
+            return true;
+        } else {
+            console.error(`Settings verification failed for ${worldName}:`, {
+                expected: finalSettings,
+                actual: savedSettings
             });
-        } catch (saveError) {
-            toastr.error(`Save operation failed for ${worldName}`, 'Save Error');
+            toastr.error(`Settings verification failed for ${worldName}`, 'Save Error');
             return false;
         }
     } catch (error) {
+        console.error(`Error saving settings for ${worldName}:`, error);
         toastr.error(`Error saving settings for ${worldName}`, 'Save Error');
         return false;
     }
 }
 
-/**
- * Clean expired entries from priority cache
- */
-function cleanPriorityCache() {
-    const now = Date.now();
-    let cleaned = 0;
-
-    // Convert to array to avoid modifying Map during iteration
-    const cacheEntries = Array.from(EXTENSION_STATE.priorityCache.entries());
-    const entriesToDelete = [];
-
-    // First pass: identify expired and invalid entries
-    for (const [worldName, cacheEntry] of cacheEntries) {
-        // Validate cache entry structure
-        if (!cacheEntry || typeof cacheEntry !== 'object' ||
-            typeof cacheEntry.timestamp !== 'number' ||
-            typeof cacheEntry.priority !== 'number' ||
-            isNaN(cacheEntry.timestamp) || isNaN(cacheEntry.priority)) {
-            entriesToDelete.push(worldName);
-            continue;
-        }
-
-        if (now - cacheEntry.timestamp > EXTENSION_STATE.priorityCacheTTL) {
-            entriesToDelete.push(worldName);
-        }
-    }
-
-    // Delete identified entries
-    entriesToDelete.forEach(worldName => {
-        EXTENSION_STATE.priorityCache.delete(worldName);
-        cleaned++;
-    });
-
-    // If cache is still too large after TTL cleanup, remove oldest entries
-    if (EXTENSION_STATE.priorityCache.size > EXTENSION_STATE.priorityCacheMaxSize) {
-        const remainingEntries = Array.from(EXTENSION_STATE.priorityCache.entries());
-        remainingEntries.sort((a, b) => a[1].timestamp - b[1].timestamp); // Sort by timestamp (oldest first)
-
-        // Calculate how many entries to remove to get back to max size
-        const excessCount = EXTENSION_STATE.priorityCache.size - EXTENSION_STATE.priorityCacheMaxSize;
-        if (excessCount > 0 && excessCount <= remainingEntries.length) {
-            const toRemove = remainingEntries.slice(0, excessCount);
-            toRemove.forEach(([worldName]) => {
-                EXTENSION_STATE.priorityCache.delete(worldName);
-                cleaned++;
-            });
-        }
-    }
-
-    if (cleaned > 0) {
-    }
-}
 
 /**
  * Get the priority for a lorebook (with default fallback)
@@ -573,316 +393,11 @@ function cleanPriorityCache() {
  * @returns {number} Priority level (1-5, default 3)
  */
 async function getLorebookPriority(worldName) {
-    // Let null/invalid world names crash to expose bugs
-
-    // Clean cache periodically (throttled with mutex)
-    const now = Date.now();
-    if (now - EXTENSION_STATE.lastCacheClean > EXTENSION_STATE.cacheCleanThrottle &&
-        !EXTENSION_STATE.cacheCleanInProgress) {
-        EXTENSION_STATE.cacheCleanInProgress = true;
-        try {
-            cleanPriorityCache();
-            EXTENSION_STATE.lastCacheClean = now;
-        } finally {
-            EXTENSION_STATE.cacheCleanInProgress = false;
-        }
-    }
-
-    // Check cache first to prevent duplicate loads
-    const cacheEntry = EXTENSION_STATE.priorityCache.get(worldName);
-    if (cacheEntry) {
-        // Check if cache entry is still valid (reuse 'now' from above)
-        if (now - cacheEntry.timestamp <= EXTENSION_STATE.priorityCacheTTL) {
-            return cacheEntry.priority;
-        } else {
-            // Remove expired entry
-            EXTENSION_STATE.priorityCache.delete(worldName);
-        }
-    }
-
-    // Load settings and cache priority
     const settings = await getLorebookSettings(worldName);
-    const priority = settings.priority ?? PRIORITY_LEVELS.DEFAULT;
-
-    // Cache the result with timestamp, checking size limit first
-    const currentTime = Date.now();
-    if (EXTENSION_STATE.priorityCache.size >= EXTENSION_STATE.priorityCacheMaxSize) {
-        // Remove oldest entry before adding new one
-        const oldestEntry = Array.from(EXTENSION_STATE.priorityCache.entries())
-            .sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
-        if (oldestEntry) {
-            EXTENSION_STATE.priorityCache.delete(oldestEntry[0]);
-        }
-    }
-
-    EXTENSION_STATE.priorityCache.set(worldName, {
-        priority: priority,
-        timestamp: currentTime
-    });
-
-    // Priority loaded (no events to emit)
-
-    return priority;
+    return settings.priority ?? PRIORITY_LEVELS.DEFAULT;
 }
 
-/**
- * Sort entries by lorebook priority using bucket sorting
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- */
-async function sortEntriesByLorebookPriority(eventData) {
-    try {
-        // Begin sorting process
 
-        const { globalLore, characterLore, chatLore, personaLore } = eventData;
-
-        // Process each lore array separately
-        await sortLoreArrayByPriority(globalLore, 'global');
-        await sortLoreArrayByPriority(characterLore, 'character');
-
-        // Chat and persona lore maintain their special priority, but we still sort within them
-        await sortLoreArrayByPriority(chatLore, 'chat');
-        await sortLoreArrayByPriority(personaLore, 'persona');
-
-
-        // Sorting completed
-    } catch (error) {
-        console.error('Error in sortEntriesByLorebookPriority:', error);
-        // Sorting failed
-    }
-}
-
-/**
- * Sort a single lore array by lorebook priority
- * @param {Array} loreArray - Array of world info entries
- * @param {string} loreType - Type of lore for debugging
- */
-async function sortLoreArrayByPriority(loreArray, loreType) {
-    // Let null/undefined arrays crash to expose bugs
-
-    // Group entries by their lorebook and priority
-    const priorityBuckets = new Map();
-
-    // Get priority for each unique lorebook in this array (parallel execution)
-    const lorebookPriorities = new Map();
-    const uniqueLorebooks = [...new Set(loreArray.map(entry => entry.world).filter(Boolean))];
-
-    // Fetch all priorities in parallel to improve performance
-    const priorityPromises = uniqueLorebooks.map(async (worldName) => {
-        try {
-            const priority = await getLorebookPriority(worldName);
-            return { worldName, priority, error: null };
-        } catch (error) {
-            console.error(`Error fetching priority for lorebook ${worldName}:`, error);
-            return { worldName, priority: PRIORITY_LEVELS.DEFAULT, error };
-        }
-    });
-
-    try {
-        const priorityResults = await Promise.all(priorityPromises);
-        let errorCount = 0;
-        priorityResults.forEach(result => {
-            lorebookPriorities.set(result.worldName, result.priority);
-            if (result.error) {
-                errorCount++;
-            }
-        });
-
-        // Log summary if there were errors
-        if (errorCount > 0) {
-            console.warn(`Failed to fetch priorities for ${errorCount} out of ${uniqueLorebooks.length} lorebooks, using defaults`);
-        }
-    } catch (error) {
-        console.error('Critical error in priority fetching:', error);
-        // Fallback: set all unknown lorebooks to default priority
-        uniqueLorebooks.forEach(worldName => {
-            if (!lorebookPriorities.has(worldName)) {
-                lorebookPriorities.set(worldName, PRIORITY_LEVELS.DEFAULT);
-            }
-        });
-    }
-
-    // Sort each entry into priority buckets
-    for (const entry of loreArray) {
-        const worldName = entry.world || 'unknown';
-        const priority = lorebookPriorities.get(worldName) || PRIORITY_LEVELS.DEFAULT;
-
-        if (!priorityBuckets.has(priority)) {
-            priorityBuckets.set(priority, []);
-        }
-        priorityBuckets.get(priority).push(entry);
-    }
-
-    // Sort buckets by priority (5 = highest, 1 = lowest)
-    const sortedPriorities = Array.from(priorityBuckets.keys()).sort((a, b) => b - a);
-
-    // Build complete sorted array before modifying original
-    const sortedEntries = [];
-    for (const priority of sortedPriorities) {
-        const bucket = priorityBuckets.get(priority);
-
-        // Within each bucket, sort by original entry order (descending, higher order = higher priority)
-        // Create a copy to avoid mutating the bucket during sort
-        const sortedBucket = [...bucket].sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
-        sortedEntries.push(...sortedBucket);
-    }
-
-    // Atomically replace array contents only after all processing is complete
-    // Create a new array and assign it back to preserve reference integrity
-    loreArray.length = 0; // Clear array
-    loreArray.push(...sortedEntries); // Add sorted entries
-
-    // Verify the operation completed successfully
-    if (loreArray.length !== sortedEntries.length) {
-        console.error(`Array replacement verification failed: expected ${sortedEntries.length}, got ${loreArray.length}`);
-    }
-
-}
-
-/**
- * Filter entries by budget constraints
- * @param {Array} loreArray - Array of world info entries
- * @param {LorebookBudgetManager} budgetManager - Budget manager instance
- */
-function filterEntriesByBudget(loreArray, budgetManager) {
-    if (!budgetManager || !budgetManager.isInitialized) {
-        return;
-    }
-    // Let null/undefined arrays crash to expose bugs
-
-    // Validate that this is the current budget manager instance and still valid
-    const currentBudgetManager = EXTENSION_STATE.budgetManager;
-    if (!currentBudgetManager || budgetManager !== currentBudgetManager) {
-        return;
-    }
-
-    // Additional null safety check before using the manager
-    if (!currentBudgetManager.canAddEntry || !currentBudgetManager.recordUsage) {
-        return;
-    }
-
-    const filteredEntries = [];
-    let totalTokensUsed = 0;
-
-    for (const entry of loreArray) {
-        // Calculate token count for this entry
-        let entryTokens = 0; // Initialize to 0
-        try {
-            const rawTokenCount = getTokenCount(entry.content || '');
-            // Validate token count result - allow 0 for empty entries but ensure it's a valid number
-            // Zero-token entries are valid and represent empty content entries which should still be processed
-            if (typeof rawTokenCount === 'number' && !isNaN(rawTokenCount) && rawTokenCount >= 0) {
-                entryTokens = Math.floor(rawTokenCount); // Ensure integer
-            }
-            // Note: Zero-token entries are intentionally allowed as they represent empty content
-            // These entries may still have triggers and should be included in budget calculations
-        } catch (error) {
-            console.error('Error calculating token count for entry:', error);
-            entryTokens = 0; // Default to 0 on error
-        }
-
-        // Check if this entry can be added within budget (atomic operation)
-        if (budgetManager.canAddEntry(entry, entryTokens)) {
-            filteredEntries.push(entry);
-            budgetManager.recordUsage(entry, entryTokens);
-            totalTokensUsed += entryTokens;
-
-            // Entry accepted
-        } else {
-
-            // Entry rejected due to budget
-        }
-    }
-
-    // Replace array contents with filtered entries atomically
-    loreArray.length = 0;
-    loreArray.push(...filteredEntries);
-
-    // Verify the filtering operation
-    if (loreArray.length !== filteredEntries.length) {
-        console.error(`Budget filtering verification failed: expected ${filteredEntries.length}, got ${loreArray.length}`);
-    }
-
-}
-
-/**
- * Apply budget management to world info entries
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- */
-async function applyBudgetManagement(eventData) {
-    try {
-        // Get all unique lorebook names from all arrays
-        const allEntries = [
-            ...(eventData.globalLore || []),
-            ...(eventData.characterLore || []),
-            ...(eventData.chatLore || []),
-            ...(eventData.personaLore || [])
-        ];
-
-        const uniqueWorlds = new Set(allEntries.map(entry => entry.world).filter(Boolean));
-        const worldNames = Array.from(uniqueWorlds);
-
-        if (worldNames.length === 0) {
-            return;
-        }
-
-        // Check if any lorebooks have custom budget settings
-        let hasCustomBudgets = false;
-        for (const worldName of worldNames) {
-            const settings = await getLorebookSettings(worldName);
-            if (settings.budgetMode !== 'default') {
-                hasCustomBudgets = true;
-                break;
-            }
-        }
-
-        if (!hasCustomBudgets) {
-            return;
-        }
-
-        // Initialize budget manager with current context settings
-        const context = getContext();
-        if (!context) {
-            return;
-        }
-        const maxContext = (typeof context.maxContext === 'number' && context.maxContext > 0)
-            ? context.maxContext
-            : 8192;
-        const totalBudget = Math.floor(maxContext * 0.8); // Reserve 20% for non-WI content
-
-        // Always create a fresh budget manager for each generation to reset usage
-        let budgetManager = null;
-        try {
-            budgetManager = new LorebookBudgetManager(totalBudget, maxContext);
-            await budgetManager.initializeBudgets(worldNames);
-            // Only assign to global state after successful initialization
-            EXTENSION_STATE.budgetManager = budgetManager;
-        } catch (error) {
-            console.error('Failed to initialize budget manager:', error);
-            // Clean up partial state on initialization failure
-            if (budgetManager) {
-                try {
-                    budgetManager.resetUsage();
-                } catch (cleanupError) {
-                    console.error('Error during budget manager cleanup:', cleanupError);
-                }
-            }
-            // Ensure budget manager is null on failure
-            EXTENSION_STATE.budgetManager = null;
-            return; // Skip budget management if initialization fails
-        }
-
-        // Budget initialized
-
-        // Apply budget filtering to all entry arrays
-        filterEntriesByBudget(eventData.globalLore, EXTENSION_STATE.budgetManager);
-        filterEntriesByBudget(eventData.characterLore, EXTENSION_STATE.budgetManager);
-        filterEntriesByBudget(eventData.chatLore, EXTENSION_STATE.budgetManager);
-        filterEntriesByBudget(eventData.personaLore, EXTENSION_STATE.budgetManager);
-
-    } catch (error) {
-        console.error('Error applying budget management:', error);
-    }
-}
 
 /**
  * Get the currently active/selected lorebook name
@@ -914,78 +429,69 @@ async function openLorebookSettings() {
     // Use try-finally to ensure modal state is always reset
     try {
         // Atomic lock to prevent race conditions
-        if (EXTENSION_STATE.modalLock || EXTENSION_STATE.modalOpen) {
+        if (EXTENSION_STATE.modalOpen) {
             return;
         }
 
-        // Set both lock and modal state atomically
-        EXTENSION_STATE.modalLock = true;
         EXTENSION_STATE.modalOpen = true;
 
         // Settings opening
 
         const currentLorebook = getCurrentLorebookName();
         if (!currentLorebook) {
-            EXTENSION_STATE.modalLock = false;
+            EXTENSION_STATE.modalOpen = false;
             toastr.info('Create or select a World Info file first.', 'World Info is not set', { timeOut: 10000, preventDuplicates: true });
             return;
         }
-
 
         // Get current settings
         const currentSettings = await getLorebookSettings(currentLorebook);
 
         // Create modal HTML
         const modalHtml = `
-            <div class="world_entry_form_control">
-                <label for="${SELECTORS.LOREBOOK_PRIORITY_SELECT}">Lorebook Priority:</label>
-                <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
-                    <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Critical (Always First)</option>
-                    <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''}>4 - High Priority</option>
-                    <option value="null" ${currentSettings.priority === null ? 'selected' : ''}>3 - Default (SillyTavern Normal)</option>
-                    <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''}>2 - Low Priority</option>
-                    <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''}>1 - Background (Always Last)</option>
-                </select>
-                <div class="range-block">
-                    <span>All entries from higher priority lorebooks will activate before lower priority ones.</span>
-                </div>
-            </div>
+            <div class="popup-body">
+                <div class="popup-content">
+                    <div class="world_entry_form_control MarginBot5 alignCenteritems">
+                        <h3 class="marginBot10">📚 SillyTavern-LorebookOrdering</h3>
+                        <h4>Lorebook Priority</h4>
+                        <small>Higher numbers (4-5) process first and get budget priority. Lower numbers (1-2) process last.</small>
 
-            <div class="world_entry_form_control">
-                <label for="${SELECTORS.LOREBOOK_BUDGET_MODE}">Budget Mode:</label>
-                <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
-                    <option value="default" ${currentSettings.budgetMode === 'default' ? 'selected' : ''}>Default (Use SillyTavern Settings)</option>
-                    <option value="percentage_context" ${currentSettings.budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
-                    <option value="percentage_budget" ${currentSettings.budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
-                    <option value="fixed" ${currentSettings.budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
-                </select>
-            </div>
+                        <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
+                        <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Highest Priority (Processes First)</option>
+                        <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''}>4 - High Priority</option>
+                        <option value="null" ${currentSettings.priority === null ? 'selected' : ''}>3 - Normal (SillyTavern Default)</option>
+                        <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''}>2 - Low Priority</option>
+                        <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''}>1 - Lowest Priority (Processes Last)</option>
+                        </select>
+                    </div>
 
-            <div class="world_entry_form_control${currentSettings.budgetMode === 'default' ? ' hidden' : ''}" id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}">
-                <label for="${SELECTORS.LOREBOOK_BUDGET_VALUE}">Budget Value:</label>
-                <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
-                       value="${String(currentSettings.budget || '')}" min="0" max="10000" step="1"
-                       placeholder="Enter value...">
-                <div class="range-block" id="${SELECTORS.BUDGET_VALUE_HINT}">
-                    <span id="${SELECTORS.BUDGET_HINT_TEXT}">Enter the budget value for this lorebook.</span>
+                    <div class="world_entry_form_control MarginBot5">
+                        <h4>Budget Mode</h4>
+                        <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
+                            <option value="default" ${currentSettings.budgetMode === 'default' ? 'selected' : ''}>Default (Use SillyTavern Settings)</option>
+                            <option value="percentage_context" ${currentSettings.budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
+                            <option value="percentage_budget" ${currentSettings.budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
+                            <option value="fixed" ${currentSettings.budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
+                        </select>
+                    </div>
+
+                    <div class="world_entry_form_control${currentSettings.budgetMode === 'default' ? ' hidden' : ''}" id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}">
+                        <h4>Budget Value</h4>
+                        <small id="budget-hint">Enter the budget value for this lorebook.</small>
+                        <div class="flexNoWrap flexGap5 justifyCenter">
+                            <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
+                                   value="${String(currentSettings.budget || '')}" min="0" max="10000" step="1"
+                                   placeholder="Enter value..." style="width: 100px;">
+                            <span id="budget-unit">%</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
 
         // Show the modal and set up behavior
         const result = await new Promise((resolve) => {
-            let formValues = null;
             let modalEventListeners = [];
-            let formStateSnapshot = null;
-            const lorebookName = currentLorebook; // Capture in closure scope
-
-            // Create a custom popup that captures form values before closing
-            const popup = new Popup(modalHtml, POPUP_TYPE.CONFIRM, '', {
-                okButton: 'Save Settings',
-                cancelButton: 'Cancel',
-                wide: false,
-                large: false
-            });
 
             // Function to capture current form state
             const captureFormState = () => {
@@ -1004,21 +510,16 @@ async function openLorebookSettings() {
                 return null;
             };
 
-            // Override the popup's confirm behavior to capture form values
-            const originalConfirm = popup.ok;
-            popup.ok = () => {
-                // Take a snapshot of current form state
-                formStateSnapshot = captureFormState();
-
-                if (!formStateSnapshot) {
+            // Function to validate and process form data
+            const validateAndProcessForm = (formState) => {
+                if (!formState) {
                     toastr.error('Settings form not properly loaded. Please try again.');
-                    return false;
+                    return null;
                 }
 
-                // Use snapshot for validation and processing
-                const priorityValue = formStateSnapshot.priority;
-                const budgetModeValue = formStateSnapshot.budgetMode;
-                const budgetValue = formStateSnapshot.budgetValue;
+                const priorityValue = formState.priority;
+                const budgetModeValue = formState.budgetMode;
+                const budgetValue = formState.budgetValue;
 
 
                 // Validate budget value if not default mode
@@ -1027,25 +528,25 @@ async function openLorebookSettings() {
                     const rawValue = budgetValue.trim();
                     if (rawValue === '') {
                         toastr.error('Budget value is required when not using default mode', 'Validation Error');
-                        return false; // Prevent modal close
+                        return null;
                     }
 
                     const parsed = parseInt(rawValue);
                     if (isNaN(parsed) || parsed < 1) {
                         toastr.error('Budget value must be a positive integer', 'Validation Error');
-                        return false; // Prevent modal close
+                        return null;
                     }
 
                     // Additional validation based on budget mode with proper range checking
                     if (budgetModeValue === 'percentage_context' || budgetModeValue === 'percentage_budget') {
                         if (parsed < 1 || parsed > 100) {
                             toastr.error('Percentage values must be between 1 and 100', 'Validation Error');
-                            return false; // Prevent modal close
+                            return null;
                         }
                     } else if (budgetModeValue === 'fixed') {
-                        if (parsed > 50000) { // Reasonable upper limit for fixed token count
-                            toastr.error('Fixed token count cannot exceed 50,000', 'Validation Error');
-                            return false; // Prevent modal close
+                        if (parsed > 250000) { // Reasonable upper limit for fixed token count
+                            toastr.error('Fixed token count cannot exceed 250,000', 'Validation Error');
+                            return null;
                         }
                     }
 
@@ -1058,21 +559,20 @@ async function openLorebookSettings() {
                     const parsedPriority = parseInt(priorityValue);
                     if (isNaN(parsedPriority) || parsedPriority < 1 || parsedPriority > 5) {
                         toastr.error('Priority value must be between 1 and 5', 'Validation Error');
-                        return false; // Prevent modal close
+                        return null;
                     }
                     validatedPriority = parsedPriority;
                 } else if (priorityValue === 'null') {
                     validatedPriority = null; // Explicitly set to null for default
                 }
 
-                formValues = {
+                const validatedForm = {
                     priority: validatedPriority,
                     budgetMode: budgetModeValue,
                     budget: validatedBudgetValue
                 };
 
-                // Call original confirm
-                return originalConfirm.call(this);
+                return validatedForm;
             };
 
             // Function to clean up modal event listeners
@@ -1088,27 +588,46 @@ async function openLorebookSettings() {
                     modalEventListeners[index].handler = null;
                 });
                 modalEventListeners.length = 0;
-            };
 
-            // Show the popup and handle result
-            popup.show().then(async (modalResult) => {
-                cleanupModalListeners(); // Clean up when modal closes
-
-                // Cancel pending animation frame if modal closes early (atomic operation)
+                // Cancel pending animation frame if it exists
                 if (EXTENSION_STATE.pendingAnimationFrame) {
                     const frameId = EXTENSION_STATE.pendingAnimationFrame;
                     EXTENSION_STATE.pendingAnimationFrame = null;
                     cancelAnimationFrame(frameId);
                 }
+            };
 
-                // Settings opened
+            // Create popup with onClosing callback to capture form data
+            const popup = new Popup(modalHtml, POPUP_TYPE.CONFIRM, '', {
+                okButton: 'Save Settings',
+                cancelButton: 'Cancel',
+                wide: false,
+                large: false,
+                onClosing: (popup) => {
 
-                if (modalResult && formValues) {
-                    resolve(formValues);
-                } else {
-                    resolve(null);
+                    // Only process form if user clicked OK/Save (POPUP_RESULT.AFFIRMATIVE = 1)
+                    if (popup.result === 1) { // POPUP_RESULT.AFFIRMATIVE
+                        const formState = captureFormState();
+                        const validatedFormData = validateAndProcessForm(formState);
+
+
+                        if (validatedFormData) {
+                            resolve(validatedFormData);
+                            cleanupModalListeners();
+                            return true; // Allow popup to close
+                        } else {
+                            return false; // Prevent popup from closing
+                        }
+                    } else {
+                        resolve(null);
+                        cleanupModalListeners();
+                        return true; // Allow popup to close
+                    }
                 }
             });
+
+            // Show the popup
+            popup.show();
 
             // Set up modal behavior immediately after popup creation
             // Use requestAnimationFrame to ensure DOM is ready
@@ -1122,18 +641,14 @@ async function openLorebookSettings() {
         if (result) {
             try {
                 const saved = await setLorebookSettings(currentLorebook, result);
+
                 if (saved) {
-                    toastr.success(`Lorebook settings saved for ${currentLorebook}`);
-
-                    // Invalidate priority cache for this lorebook
-                    EXTENSION_STATE.priorityCache.delete(currentLorebook);
-
-                    // Settings saved
+                    toastr.success(`STLO settings saved for ${currentLorebook}`);
                 } else {
                     toastr.error(`Failed to save settings for ${currentLorebook}. Check console for details.`, 'Save Error');
                 }
             } catch (saveError) {
-                console.error('Error saving lorebook settings:', saveError);
+                console.error('Exception during save operation:', saveError);
                 toastr.error(`Failed to save settings for ${currentLorebook}: ${saveError.message}`, 'Save Error');
             }
         }
@@ -1141,9 +656,8 @@ async function openLorebookSettings() {
     } catch (error) {
         console.error('Error opening lorebook settings:', error);
     } finally {
-        // Always reset both modal states when function exits
+        // Always reset modal state when function exits
         EXTENSION_STATE.modalOpen = false;
-        EXTENSION_STATE.modalLock = false;
     }
 }
 
@@ -1154,44 +668,105 @@ async function openLorebookSettings() {
 function setupModalBehavior(modalEventListeners = []) {
     const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
     const budgetValueContainer = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER);
-    const budgetHintText = document.getElementById(SELECTORS.BUDGET_HINT_TEXT);
+    const budgetHintText = document.getElementById('budget-hint');
+    const budgetUnit = document.getElementById('budget-unit');
+    const budgetValueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
 
     // Validate DOM elements are actual HTMLElements
-    if (budgetModeSelect && budgetValueContainer && budgetHintText &&
+    if (budgetModeSelect && budgetValueContainer && budgetHintText && budgetUnit && budgetValueInput &&
         budgetModeSelect instanceof HTMLElement &&
         budgetValueContainer instanceof HTMLElement &&
-        budgetHintText instanceof HTMLElement) {
+        budgetHintText instanceof HTMLElement &&
+        budgetUnit instanceof HTMLElement &&
+        budgetValueInput instanceof HTMLElement) {
+
+        // Store values for each mode type to preserve when switching
+        const currentMode = budgetModeSelect.value;
+        const currentValue = budgetValueInput.value || '';
+        const isCurrentModePercentage = currentMode === 'percentage_context' || currentMode === 'percentage_budget';
+
+        const storedValues = {
+            percentage: isCurrentModePercentage ? currentValue : '',
+            fixed: (currentMode === 'fixed') ? currentValue : ''
+        };
+
+        const updateValidation = (mode) => {
+            const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
+            budgetValueInput.max = isPercentage ? '100' : '10000';
+        };
+
         const changeHandler = () => {
             const mode = budgetModeSelect.value;
+            const previousMode = budgetModeSelect.dataset.previousMode || mode;
 
             if (mode === 'default') {
                 budgetValueContainer.classList.add('hidden');
             } else {
                 budgetValueContainer.classList.remove('hidden');
 
-                // Update hint text based on mode
+                // Store current value for the previous mode before switching
+                if (previousMode !== mode) {
+                    const wasPreviousPercentage = previousMode === 'percentage_context' || previousMode === 'percentage_budget';
+                    if (wasPreviousPercentage) {
+                        storedValues.percentage = budgetValueInput.value;
+                    } else if (previousMode === 'fixed') {
+                        storedValues.fixed = budgetValueInput.value;
+                    }
+                }
+
+                // Update unit and hint text based on mode
                 switch (mode) {
                     case 'percentage_context':
+                        budgetUnit.textContent = '%';
                         budgetHintText.textContent = 'Percentage of total context length (1-100).';
+                        // Restore percentage value or clamp if switching from fixed
+                        budgetValueInput.value = storedValues.percentage || (parseInt(storedValues.fixed) > 100 ? '100' : storedValues.fixed);
                         break;
                     case 'percentage_budget':
+                        budgetUnit.textContent = '%';
                         budgetHintText.textContent = 'Percentage of allocated World Info budget (1-100).';
+                        // Restore percentage value or clamp if switching from fixed
+                        budgetValueInput.value = storedValues.percentage || (parseInt(storedValues.fixed) > 100 ? '100' : storedValues.fixed);
                         break;
                     case 'fixed':
+                        budgetUnit.textContent = 'tokens';
                         budgetHintText.textContent = 'Fixed number of tokens this lorebook can use.';
+                        // Restore fixed value
+                        budgetValueInput.value = storedValues.fixed;
                         break;
                 }
+
+                updateValidation(mode);
+                budgetModeSelect.dataset.previousMode = mode;
+            }
+        };
+
+        // Add input validation handler
+        const inputHandler = () => {
+            const mode = budgetModeSelect.value;
+            const value = parseInt(budgetValueInput.value);
+            const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
+
+            if (isPercentage && value > 100) {
+                budgetValueInput.value = '100';
+            }
+
+            // Update stored value for current mode
+            if (isPercentage) {
+                storedValues.percentage = budgetValueInput.value;
+            } else if (mode === 'fixed') {
+                storedValues.fixed = budgetValueInput.value;
             }
         };
 
         budgetModeSelect.addEventListener('change', changeHandler);
+        budgetValueInput.addEventListener('input', inputHandler);
 
-        // Track this listener for cleanup
-        modalEventListeners.push({
-            element: budgetModeSelect,
-            event: 'change',
-            handler: changeHandler
-        });
+        // Track listeners for cleanup
+        modalEventListeners.push(
+            { element: budgetModeSelect, event: 'change', handler: changeHandler },
+            { element: budgetValueInput, event: 'input', handler: inputHandler }
+        );
 
         // Trigger the change event to set initial state
         try {
@@ -1209,158 +784,286 @@ function setupModalBehavior(modalEventListeners = []) {
 }
 
 /**
- * Manages budget allocation and tracking for lorebooks
+ * Pre-activate entries for budgeted lorebooks
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
+ * @returns {Array} Array of pre-activated entries
  */
-class LorebookBudgetManager {
-    constructor(totalBudget, maxContext) {
-        this.totalBudget = totalBudget;
-        this.maxContext = maxContext;
-        this.budgets = new Map(); // worldName -> {allocated, used, mode, value}
-        this.isInitialized = false;
+async function preActivateBudgetedEntries(eventData, budgetedLorebooks) {
+    if (!budgetedLorebooks || budgetedLorebooks.length === 0) {
+        return [];
     }
 
-    /**
-     * Initialize budgets for all active lorebooks
-     * @param {string[]} worldNames - Array of active lorebook names
-     */
-    async initializeBudgets(worldNames) {
-        this.budgets.clear();
+    const preActivatedEntries = [];
 
-        for (const worldName of worldNames) {
-            const settings = await getLorebookSettings(worldName);
-            const budgetInfo = this.calculateBudgetForLorebook(settings);
+    try {
+        for (const lorebookName of budgetedLorebooks) {
 
-            this.budgets.set(worldName, {
-                allocated: budgetInfo.allocated,
-                used: 0,
-                mode: settings.budgetMode,
-                value: settings.budget,
-                settings: settings
-            });
+            // Collect all entries from this lorebook
+            const lorebookEntries = collectLorebookEntries(eventData, lorebookName);
+
+            if (lorebookEntries.length === 0) {
+                continue;
+            }
+
+            // Get budget for this lorebook
+            const settings = await getLorebookSettings(lorebookName);
+            const budget = await calculateLorebookBudget(settings);
+
+
+            // Apply priority-based ordering to entries from this lorebook
+            const lorebookPriority = await getLorebookPriority(lorebookName);
+            for (const entry of lorebookEntries) {
+                const originalOrder = Math.min(entry.order ?? 100, 9999);
+                entry.order = lorebookPriority * 10000 + originalOrder;
+            }
+
+            // Sort entries by priority-modified order (highest first)
+            lorebookEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+
+            // Apply budget filtering with simplified activation check
+            let usedTokens = 0;
+            const activatedEntries = [];
+
+            for (const entry of lorebookEntries) {
+                // Simplified activation check (includes disable check)
+                if (!wouldActivate(entry)) {
+                    continue;
+                }
+
+                // Check budget (skip budget check if entry has ignoreBudget flag)
+                const rawTokens = getTokenCount(entry.content || '');
+                const entryTokens = (typeof rawTokens === 'number' && !isNaN(rawTokens) && rawTokens >= 0) ? rawTokens : 0;
+                if (entry.ignoreBudget || usedTokens + entryTokens <= budget) {
+                    activatedEntries.push(entry);
+                    // Only count tokens toward budget if entry doesn't ignore budget
+                    if (!entry.ignoreBudget) {
+                        usedTokens += entryTokens;
+                    }
+
+                } else {
+                    break; // Budget exceeded
+                }
+            }
+
+            preActivatedEntries.push(...activatedEntries);
+
         }
 
-        this.isInitialized = true;
+        return preActivatedEntries;
+    } catch (error) {
+        console.error('Error in preActivateBudgetedEntries:', error);
+        return [];
     }
+}
 
-    /**
-     * Calculate budget allocation for a specific lorebook
-     * @param {Object} settings - Lorebook settings
-     * @returns {Object} Budget allocation info
-     */
-    calculateBudgetForLorebook(settings) {
+/**
+ * Collect all entries belonging to a specific lorebook from all arrays
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @param {string} lorebookName - Name of the lorebook
+ * @returns {Array} Array of entries from the specified lorebook
+ */
+function collectLorebookEntries(eventData, lorebookName) {
+    const allEntries = [
+        ...(eventData.globalLore || []),
+        ...(eventData.characterLore || []),
+        ...(eventData.chatLore || []),
+        ...(eventData.personaLore || [])
+    ];
+
+    return allEntries.filter(entry => entry.world === lorebookName);
+}
+
+/**
+ * Calculate budget for a specific lorebook
+ * @param {Object} settings - Lorebook settings
+ * @returns {number} Budget in tokens
+ */
+async function calculateLorebookBudget(settings) {
+    try {
+        const context = getContext();
+        const maxContext = (typeof context.maxContext === 'number' && context.maxContext > 0)
+            ? context.maxContext
+            : 8192;
+
+        const wiBudgetPercentage = (typeof world_info_budget === 'number' && world_info_budget > 0)
+            ? world_info_budget
+            : 25;
+        let totalBudget = Math.round(wiBudgetPercentage * maxContext / 100) || 1;
+
+        const budgetCap = (typeof world_info_budget_cap === 'number' && world_info_budget_cap > 0)
+            ? world_info_budget_cap
+            : 0;
+        if (budgetCap > 0 && totalBudget > budgetCap) {
+            totalBudget = budgetCap;
+        }
+
         const budgetValue = settings.budget || 0;
 
         switch (settings.budgetMode) {
             case 'percentage_context':
-                const contextResult = calculatePercentageBudget(budgetValue, this.maxContext, 'context');
-                return contextResult || {
-                    allocated: this.totalBudget,
-                    description: 'Default (SillyTavern budget)'
-                };
-
-            case 'percentage_budget':
-                const budgetResult = calculatePercentageBudget(budgetValue, this.totalBudget, 'WI budget');
-                return budgetResult || {
-                    allocated: this.totalBudget,
-                    description: 'Default (SillyTavern budget)'
-                };
-
-            case 'fixed':
-                if (budgetValue <= 0) {
-                    console.warn(`Invalid fixed value: ${budgetValue}, using default`);
-                    return {
-                        allocated: this.totalBudget,
-                        description: 'Default (SillyTavern budget)'
-                    };
+                if (budgetValue >= 1 && budgetValue <= 100) {
+                    return Math.floor((budgetValue / 100) * maxContext);
                 }
-                return {
-                    allocated: Math.max(budgetValue, 0),
-                    description: `${budgetValue} tokens (fixed)`
-                };
-
-            case 'default':
-            default:
-                return {
-                    allocated: this.totalBudget,
-                    description: 'Default (SillyTavern budget)'
-                };
-        }
-    }
-
-
-    /**
-     * Check if an entry can be added within its lorebook's budget
-     * @param {Object} entry - World info entry
-     * @param {number} tokenCount - Token count for the entry
-     * @returns {boolean} Whether the entry can be added
-     */
-    canAddEntry(entry, tokenCount) {
-        if (!this.isInitialized) {
-            return true; // Allow if not initialized (fallback to ST behavior)
+                break;
+            case 'percentage_budget':
+                if (budgetValue >= 1 && budgetValue <= 100) {
+                    return Math.floor((budgetValue / 100) * totalBudget);
+                }
+                break;
+            case 'fixed':
+                if (budgetValue > 0) {
+                    return budgetValue;
+                }
+                break;
         }
 
-        const worldName = entry.world || 'unknown';
-        if (!worldName || worldName === 'unknown') {
-            return true; // Allow if no world name (fallback)
-        }
-
-        const budgetInfo = this.budgets.get(worldName);
-
-        if (!budgetInfo) {
-            return true; // Allow if no budget info (fallback)
-        }
-
-        // For default mode, don't enforce budget limits (use ST's logic)
-        if (budgetInfo.mode === 'default') {
-            return true;
-        }
-
-        const wouldExceed = (budgetInfo.used + tokenCount) > budgetInfo.allocated;
-
-        if (wouldExceed) {
-        }
-
-        return !wouldExceed;
-    }
-
-    /**
-     * Record token usage for a lorebook
-     * @param {Object} entry - World info entry
-     * @param {number} tokenCount - Token count used
-     */
-    recordUsage(entry, tokenCount) {
-        if (!this.isInitialized) {
-            return;
-        }
-
-        const worldName = entry.world || 'unknown';
-        if (!worldName || worldName === 'unknown') {
-            return; // Skip if no world name
-        }
-
-        const budgetInfo = this.budgets.get(worldName);
-
-        if (budgetInfo) {
-            budgetInfo.used += tokenCount;
-        }
-    }
-
-
-    /**
-     * Reset usage counters
-     */
-    resetUsage() {
-        for (const budgetInfo of this.budgets.values()) {
-            budgetInfo.used = 0;
-        }
+        // Default fallback
+        return totalBudget;
+    } catch (error) {
+        console.error('Error calculating lorebook budget:', error);
+        return 1000; // Safe fallback
     }
 }
 
-// Export for potential external use
-export {
-    EXTENSION_NAME,
-    EXTENSION_DISPLAY_NAME,
-    PRIORITY_LEVELS,
-    DEFAULT_LOREBOOK_SETTINGS,
-    EXTENSION_STATE
-};
+/**
+ * Simplified activation check for pre-activation
+ * @param {Object} entry - World info entry
+ * @returns {boolean} Whether the entry would likely activate
+ */
+function wouldActivate(entry) {
+    // Skip disabled entries
+    if (entry.disable) {
+        return false;
+    }
+
+    // Must have keys to activate
+    if (!Array.isArray(entry.key) || entry.key.length === 0) {
+        return false;
+    }
+
+    // For pre-activation, assume entries with keys would activate
+    // NOTE: This is intentionally simplified. We don't check probability, depth, or actual keyword matching
+    // because this function is only used during pre-activation for budgeted lorebooks.
+    // SillyTavern will perform the full activation checks (including probability/depth) later
+    // when processing the final ordered entries. Our goal here is just priority ordering.
+    return true;
+}
+
+/**
+ * Remove original entries from budgeted lorebooks after pre-activation
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
+ */
+function removeOriginalBudgetedEntries(eventData, budgetedLorebooks) {
+    if (!budgetedLorebooks || budgetedLorebooks.length === 0) {
+        return;
+    }
+
+    try {
+        const arrays = [eventData.globalLore, eventData.characterLore, eventData.chatLore, eventData.personaLore];
+
+        for (const array of arrays) {
+            if (!Array.isArray(array)) continue;
+
+            // Remove entries from budgeted lorebooks
+            for (let i = array.length - 1; i >= 0; i--) {
+                const entry = array[i];
+                if (entry && budgetedLorebooks.includes(entry.world)) {
+                    array.splice(i, 1);
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('Error removing original budgeted entries:', error);
+    }
+}
+
+/**
+ * Combine all arrays into globalLore with priority-based ordering
+ * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
+ * @param {Array} preActivatedEntries - Pre-activated entries from budgeted lorebooks
+ * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
+ */
+async function combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLorebooks) {
+    try {
+        const { globalLore, characterLore, chatLore, personaLore } = eventData;
+
+        // Apply priority-based ordering to entries from non-budgeted lorebooks
+        // (Pre-activated entries already have priority ordering applied)
+        const nonPreActivatedEntries = [
+            ...(globalLore || []),
+            ...(characterLore || []),
+            ...(chatLore || []),
+            ...(personaLore || [])
+        ];
+
+        for (const entry of nonPreActivatedEntries) {
+            try {
+                // Entries without world name get default priority
+                const priority = entry.world ? await getLorebookPriority(entry.world) : PRIORITY_LEVELS.DEFAULT;
+                const originalOrder = Math.min(entry.order ?? 100, 9999); // Cap to prevent overflow
+
+                // Formula: priority * 10000 + originalOrder
+                // Priority 1 → order 10000+ (processes last)
+                // Priority 5 → order 50000+ (processes first)
+                entry.order = priority * 10000 + originalOrder;
+
+            } catch (error) {
+                console.warn(`Error setting priority for entry from ${entry.world}:`, error);
+                // Keep original order on error
+            }
+        }
+
+        // Now collect all entries (after modification)
+        const allEntries = [
+            ...(globalLore || []),
+            ...(characterLore || []),
+            ...(chatLore || []),
+            ...(personaLore || []),
+            ...(preActivatedEntries || [])
+        ];
+
+        // Sort entries by new order (highest first)
+        allEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+
+        // Clear all arrays
+        globalLore.length = 0;
+        characterLore.length = 0;
+        chatLore.length = 0;
+        personaLore.length = 0;
+
+        // Put everything in globalLore
+        globalLore.push(...allEntries);
+
+    } catch (error) {
+        console.error('Error combining into globalLore:', error);
+    }
+}
+
+
+
+// Extension initialization
+async function init() {
+    const initializeExtension = async () => {
+        try {
+            // Initialize extension
+            const context = getContext();
+            if (!context) {
+                throw new Error('Failed to get SillyTavern context');
+            }
+
+            setupEventHandlers();
+            addLorebookOrderingButton();
+
+        } catch (error) {
+            console.error('Failed to load STLO extension:', error);
+        }
+    };
+
+    // Wait for SillyTavern to be ready
+    eventSource.once(event_types.APP_READY, initializeExtension);
+}
+
+init();

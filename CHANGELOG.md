@@ -1,0 +1,35 @@
+# 📚 Lorebook Ordering - Version History
+
+**← [Back to README](README.md)**
+
+## v1.0.0 (September 2025)
+- **Initial Release:** Complete lorebook priority and budget management system for SillyTavern
+- **Priority Control System:** Five-level priority system for lorebooks
+  - Highest (5): Maximum priority for critical world information
+  - High (4): Above-average priority for important lorebooks
+  - Default (3): Standard SillyTavern behavior (no modification)
+  - Low (2): Below-average priority for supplementary information
+  - Lowest (1): Minimum priority for background/optional content
+- **Advanced Budget Management:** Four distinct budget allocation modes
+  - Default mode: Uses SillyTavern's standard budget allocation
+  - Percentage of Context: Allocate specific percentage of total context window
+  - Percentage of Budget: Allocate specific percentage of World Info budget
+  - Fixed Tokens: Set exact token limits for precise control
+- **Evenly Strategy Integration:** Seamless integration with SillyTavern's "evenly" World Info insertion strategy
+  - Real-time strategy validation during generation
+  - Smart warnings only during user-initiated generation (not automatic greetings)
+  - Graceful fallback when strategy requirements aren't met
+- **Intelligent Warning System:** Context-aware notifications and user choices
+  - Strategy compatibility detection with actionable options
+  - User can choose to switch strategy, stop generation, or disable STLO
+  - Generation state tracking to avoid spam notifications
+- **Per-Lorebook Configuration:** Individual settings management
+  - Settings automatically saved per lorebook
+  - Persistent configuration across SillyTavern sessions
+  - Clean UI with dropdown selection and real-time updates
+
+**← [Back to README](README.md)**
+
+---
+
+*This version history is maintained alongside active development. For the most up-to-date features and configuration options, see the main [README](README.md).*
