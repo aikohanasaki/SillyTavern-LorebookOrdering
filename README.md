@@ -41,6 +41,8 @@ Tested with these settings:
 - Ensure you have multiple lorebooks available
 - Set World Info insertion strategy to "evenly" in SillyTavern settings
 
+![Extension Button](https://github.com/aikohanasaki/imagehost/blob/main/settings.png)
+
 ### 2. **Access Settings**
 - Open the World Info panel in SillyTavern
 - Look for the "Lorebook Ordering" button next to the search box
