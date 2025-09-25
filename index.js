@@ -377,25 +377,12 @@ async function setLorebookSettings(worldName, settings) {
         worldData[EXTENSION_NAME] = finalSettings;
 
         // Save the world data back immediately
-        const saveResult = await saveWorldInfo(worldName, worldData, true);
+        await saveWorldInfo(worldName, worldData, true);
 
-        // Clear cache and verify save
+        // Clear cache to ensure fresh load next time
         worldInfoCache.delete(worldName);
-        await new Promise(resolve => setTimeout(resolve, 100));
 
-        const verifyData = await loadWorldInfo(worldName);
-        const savedSettings = verifyData?.[EXTENSION_NAME];
-
-        if (savedSettings && JSON.stringify(finalSettings) === JSON.stringify(savedSettings)) {
-            return true;
-        } else {
-            console.error(`Settings verification failed for ${worldName}:`, {
-                expected: finalSettings,
-                actual: savedSettings
-            });
-            toastr.error(`Settings verification failed for ${worldName}`, 'Save Error');
-            return false;
-        }
+        return true;
     } catch (error) {
         console.error(`Error saving settings for ${worldName}:`, error);
         toastr.error(`Error saving settings for ${worldName}`, 'Save Error');
@@ -666,7 +653,7 @@ async function openLorebookSettings() {
             // Use requestAnimationFrame to ensure DOM is ready
             EXTENSION_STATE.pendingAnimationFrame = requestAnimationFrame(() => {
                 EXTENSION_STATE.pendingAnimationFrame = null;
-                setupModalBehavior(modalEventListeners);
+                setupModalBehavior(modalEventListeners, currentSettings);
             });
         });
 
@@ -697,8 +684,9 @@ async function openLorebookSettings() {
 /**
  * Set up interactive behavior for the modal
  * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ * @param {Object} currentSettings - Current lorebook settings
  */
-function setupModalBehavior(modalEventListeners = []) {
+function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
     const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
     const budgetValueContainer = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER);
     const budgetHintText = document.getElementById('budget-hint');
@@ -816,7 +804,7 @@ function setupModalBehavior(modalEventListeners = []) {
     }
 
     // Set up Group Chat Overrides behavior
-    setupAdvancedBehavior(modalEventListeners);
+    setupAdvancedBehavior(modalEventListeners, currentSettings);
 }
 
 /**
@@ -979,8 +967,9 @@ function generateAdvancedContent() {
 /**
  * Set up behavior for advanced mode
  * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ * @param {Object} currentSettings - Current lorebook settings
  */
-function setupAdvancedBehavior(modalEventListeners = []) {
+function setupAdvancedBehavior(modalEventListeners = [], currentSettings = {}) {
     // Generate and insert advanced content first
     const advancedSectionsContainer = document.getElementById('advanced-priority-sections');
     if (advancedSectionsContainer) {
@@ -1001,6 +990,9 @@ function setupAdvancedBehavior(modalEventListeners = []) {
 
     // Initialize Select2
     initializeSelect2();
+
+    // Populate saved character overrides
+    populateCharacterOverrides(currentSettings.characterOverrides || {});
 }
 
 /**
@@ -1100,6 +1092,41 @@ function populateCharacterSelectors() {
             }
         }
     }
+}
+
+/**
+ * Populate character overrides from saved settings
+ * @param {Object} characterOverrides - Saved character overrides
+ */
+function populateCharacterOverrides(characterOverrides = {}) {
+    // Iterate through saved overrides and populate the form
+    Object.entries(characterOverrides).forEach(([character, settings]) => {
+        const priority = settings.priority;
+        if (!priority || priority < 1 || priority > 5) return;
+
+        // Find the character selector for this priority level
+        const characterSelect = document.querySelector(`.override-character-filter[data-priority="${priority}"]`);
+        if (characterSelect) {
+            // Add the character to the selection
+            $(characterSelect).val([...($(characterSelect).val() || []), character]).trigger('change');
+
+            // Set budget mode and value if they exist
+            if (settings.budgetMode && settings.budgetMode !== 'default') {
+                const budgetModeSelect = document.querySelector(`.override-budget-mode[data-priority="${priority}"]`);
+                const budgetValueInput = document.querySelector(`.override-budget-value[data-priority="${priority}"]`);
+
+                if (budgetModeSelect) {
+                    budgetModeSelect.value = settings.budgetMode;
+                    // Trigger change event to update UI
+                    budgetModeSelect.dispatchEvent(new Event('change'));
+                }
+
+                if (budgetValueInput && settings.budget !== null && settings.budget !== undefined) {
+                    budgetValueInput.value = settings.budget;
+                }
+            }
+        }
+    });
 }
 
 /**

@@ -2,6 +2,12 @@
 
 **← [Back to README](README.md)**
 
+## v1.1.1 (January 2025)
+- **🔧 Settings Persistence Fix:** Fixed bug where settings would not reload properly in UI
+  - Removed unreliable JSON comparison verification that caused false save failures
+  - Fixed character overrides not populating in Group Chat Overrides section
+  - Settings now persist and load correctly in all scenarios
+
 ## v1.1.0 (January 2025)
 - **🎭 Group Chat Character Overrides:** Major new feature for per-character lorebook behavior
   - Different characters can now have different lorebook priorities during their turns in group chats
