@@ -20,7 +20,8 @@ const SELECTORS = {
 const DEFAULT_LOREBOOK_SETTINGS = {
     priority: null,     // null = default priority (3)
     budget: null,       // null = use ST default budget allocation
-    budgetMode: 'default'  // 'default' | 'percentage_context' | 'percentage_budget' | 'fixed'
+    budgetMode: 'default',  // 'default' | 'percentage_context' | 'percentage_budget' | 'fixed'
+    characterOverrides: {}  // Character-specific priority overrides for group chats
 };
 
 // Cleanup tracking
@@ -447,43 +448,42 @@ async function openLorebookSettings() {
         // Get current settings
         const currentSettings = await getLorebookSettings(currentLorebook);
 
-        // Create modal HTML
+        // Create modal HTML - single vertical scrolling content
         const modalHtml = `
-            <div class="popup-body">
-                <div class="popup-content">
-                    <div class="world_entry_form_control MarginBot5 alignCenteritems">
-                        <h3 class="marginBot10">📚 SillyTavern-LorebookOrdering</h3>
-                        <h4>Lorebook Priority</h4>
-                        <small>Higher numbers (4-5) process first and get budget priority. Lower numbers (1-2) process last.</small>
+            <div class="world_entry_form_control MarginBot5 alignCenteritems">
+                <h3 class="marginBot10">📚 ST Lorebook Ordering</h3>
+                <h4>Lorebook Priority</h4>
+                <small>Higher numbers (4-5) process first and get budget priority. Lower numbers (1-2) process last.</small>
 
-                        <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
-                        <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Highest Priority (Processes First)</option>
-                        <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''}>4 - High Priority</option>
-                        <option value="null" ${currentSettings.priority === null ? 'selected' : ''}>3 - Normal (SillyTavern Default)</option>
-                        <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''}>2 - Low Priority</option>
-                        <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''}>1 - Lowest Priority (Processes Last)</option>
-                        </select>
+                <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
+                    <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Highest Priority (Processes First)</option>
+                    <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''}>4 - High Priority</option>
+                    <option value="null" ${currentSettings.priority === null ? 'selected' : ''}>3 - Normal (SillyTavern Default)</option>
+                    <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''}>2 - Low Priority</option>
+                    <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''}>1 - Lowest Priority (Processes Last)</option>
+                </select>
+            </div>
+
+            <div class="world_entry_form_control MarginBot5">
+                ${createBudgetControls('lorebook', currentSettings)}
+            </div>
+
+            <!-- Group Chat Overrides -->
+            <div class="inline-drawer wide100p world_entry_form_control MarginTop10 MarginBot10">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <b>Group Chat Overrides</b>
+                    <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <div class="info-block warning MarginBot10">
+                        <small>If a character is selected in here, the priority settings here will override the lorebook's default setting only during that character's speaking turns in a group chat.</small>
                     </div>
-
-                    <div class="world_entry_form_control MarginBot5">
-                        <h4>Budget Mode</h4>
-                        <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
-                            <option value="default" ${currentSettings.budgetMode === 'default' ? 'selected' : ''}>Default (Use SillyTavern Settings)</option>
-                            <option value="percentage_context" ${currentSettings.budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
-                            <option value="percentage_budget" ${currentSettings.budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
-                            <option value="fixed" ${currentSettings.budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
-                        </select>
+                    <div class="info-block MarginBot10">
+                        <h4>Default Priority: <span id="default-priority-display">3 - Normal</span></h4>
+                        <small>Characters not specifically listed will use the priority level set above. Single-character chats always use the default.</small>
                     </div>
-
-                    <div class="world_entry_form_control${currentSettings.budgetMode === 'default' ? ' hidden' : ''}" id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}">
-                        <h4>Budget Value</h4>
-                        <small id="budget-hint">Enter the budget value for this lorebook.</small>
-                        <div class="flexNoWrap flexGap5 justifyCenter">
-                            <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
-                                   value="${String(currentSettings.budget || '')}" min="0" max="10000" step="1"
-                                   placeholder="Enter value..." style="width: 100px;">
-                            <span id="budget-unit">%</span>
-                        </div>
+                    <div id="advanced-priority-sections">
+                        <!-- Priority sections will be inserted here -->
                     </div>
                 </div>
             </div>
@@ -566,10 +566,17 @@ async function openLorebookSettings() {
                     validatedPriority = null; // Explicitly set to null for default
                 }
 
+                // Validate character overrides (this may return null if duplicates found)
+                const characterOverrides = getCharacterOverrides();
+                if (characterOverrides === null) {
+                    return null; // Validation failed due to duplicate characters
+                }
+
                 const validatedForm = {
                     priority: validatedPriority,
                     budgetMode: budgetModeValue,
-                    budget: validatedBudgetValue
+                    budget: validatedBudgetValue,
+                    characterOverrides: characterOverrides
                 };
 
                 return validatedForm;
@@ -603,6 +610,7 @@ async function openLorebookSettings() {
                 cancelButton: 'Cancel',
                 wide: false,
                 large: false,
+                allowVerticalScrolling: true,
                 onClosing: (popup) => {
 
                     // Only process form if user clicked OK/Save (POPUP_RESULT.AFFIRMATIVE = 1)
@@ -781,6 +789,417 @@ function setupModalBehavior(modalEventListeners = []) {
             }
         }
     }
+
+    // Set up Group Chat Overrides behavior
+    setupAdvancedBehavior(modalEventListeners);
+}
+
+/**
+ * Create budget control HTML section
+ * @param {string} prefix - CSS class prefix for selectors
+ * @param {Object} settings - Budget settings with budgetMode and budget properties
+ * @param {number|null} [priorityLevel=null] - Priority level for override controls
+ * @returns {string} HTML string for budget controls
+ */
+function createBudgetControls(prefix, settings = {}, priorityLevel = null) {
+    const budgetMode = settings.budgetMode || 'default';
+    const budgetValue = settings.budget || '';
+    const isHidden = budgetMode === 'default';
+    const isOverride = prefix.includes('override');
+
+    if (isOverride && priorityLevel) {
+        return `
+        <div class="flex-container flexGap10 MarginTop5">
+            <div class="flex2">
+                <h5>Budget Mode</h5>
+                <select class="text_pole textarea_compact ${prefix}-budget-mode" data-priority="${priorityLevel}">
+                    <option value="default" ${budgetMode === 'default' ? 'selected' : ''}>Default (Use Lorebook Settings)</option>
+                    <option value="percentage_context" ${budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
+                    <option value="percentage_budget" ${budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
+                    <option value="fixed" ${budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
+                </select>
+            </div>
+
+            <div class="flex1 ${prefix}-budget-value-container" data-priority="${priorityLevel}" style="display: ${isHidden ? 'none' : 'block'};">
+                <h5>Budget Value</h5>
+                <div class="flexNoWrap flexGap5 justifyCenter">
+                    <input type="number" class="text_pole textarea_compact ${prefix}-budget-value"
+                           data-priority="${priorityLevel}" min="0" max="10000" step="1"
+                           value="${budgetValue}" placeholder="Value..." style="width: 80px;">
+                    <span class="${prefix}-budget-unit" data-priority="${priorityLevel}">%</span>
+                </div>
+            </div>
+        </div>`;
+    } else {
+        return `
+        <h4>Budget Mode</h4>
+        <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
+            <option value="default" ${budgetMode === 'default' ? 'selected' : ''}>Default (Use SillyTavern Settings)</option>
+            <option value="percentage_context" ${budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
+            <option value="percentage_budget" ${budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
+            <option value="fixed" ${budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
+        </select>
+    </div>
+
+    <div class="world_entry_form_control${isHidden ? ' hidden' : ''}" id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}">
+        <h4>Budget Value</h4>
+        <small id="budget-hint">Enter the budget value for this lorebook.</small>
+        <div class="flexNoWrap flexGap5 justifyCenter">
+            <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
+                   value="${budgetValue}" min="0" max="10000" step="1"
+                   placeholder="Enter value..." style="width: 100px;">
+            <span id="budget-unit">%</span>
+        </div>
+    </div>`;
+    }
+}
+
+/**
+ * Set up priority display synchronization
+ * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ */
+function setupPriorityDisplaySync(modalEventListeners = []) {
+    const prioritySelect = document.getElementById(SELECTORS.LOREBOOK_PRIORITY_SELECT);
+    const priorityDisplay = document.getElementById('default-priority-display');
+
+    if (prioritySelect && priorityDisplay) {
+        const updatePriorityDisplay = () => {
+            const selectedOption = prioritySelect.options[prioritySelect.selectedIndex];
+            if (selectedOption) {
+                // Extract just the display text (e.g., "5 - Highest Priority (Processes First)" -> "5 - Highest Priority")
+                const displayText = selectedOption.textContent.replace(/ \(.*\)$/, '');
+                priorityDisplay.textContent = displayText;
+            }
+        };
+
+        prioritySelect.addEventListener('change', updatePriorityDisplay);
+
+        // Track listener for cleanup
+        modalEventListeners.push(
+            { element: prioritySelect, event: 'change', handler: updatePriorityDisplay }
+        );
+
+        // Set initial display
+        updatePriorityDisplay();
+    }
+}
+
+/**
+ * Set up simple drawer toggle behavior
+ * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ */
+function setupDrawerBehavior(modalEventListeners = []) {
+    const drawer = document.querySelector('.inline-drawer');
+    const drawerIcon = document.querySelector('.inline-drawer-icon');
+    const drawerToggle = document.querySelector('.inline-drawer-toggle');
+
+    if (drawer && drawerIcon && drawerToggle) {
+        const drawerToggleHandler = (e) => {
+            e.preventDefault();
+            drawer.classList.toggle('openDrawer');
+            drawerIcon.classList.toggle('down');
+            drawerIcon.classList.toggle('up');
+        };
+
+        drawerToggle.addEventListener('click', drawerToggleHandler);
+
+        // Track listener for cleanup
+        modalEventListeners.push(
+            { element: drawerToggle, event: 'click', handler: drawerToggleHandler }
+        );
+    }
+}
+
+/**
+ * Generate advanced mode priority sections
+ * @returns {string} HTML string for priority sections
+ */
+function generateAdvancedContent() {
+    const priorityLevels = [
+        { level: 5, name: 'Highest', description: 'Processes first, gets budget priority' },
+        { level: 4, name: 'High', description: 'High priority processing' },
+        { level: 3, name: 'Normal', description: 'Standard priority (SillyTavern default)' },
+        { level: 2, name: 'Low', description: 'Lower priority processing' },
+        { level: 1, name: 'Lowest', description: 'Processes last' }
+    ];
+
+    const createPrioritySection = (priority) => `
+        <div class="priority-section world_entry_form_control MarginBot10" data-priority="${priority.level}">
+            <h4>${priority.level} - ${priority.name} Priority</h4>
+            <small>${priority.description}</small>
+
+            ${createBudgetControls('override', {}, priority.level)}
+
+            <div class="flex1 range-block MarginTop10">
+                <div class="range-block-title">
+                    <div class="flex-container justifySpaceBetween">
+                        <small>Characters</small>
+                    </div>
+                </div>
+                <div class="range-block-range">
+                    <select class="override-character-filter text_pole textarea_compact"
+                            id="priority-${priority.level}-characters"
+                            data-priority="${priority.level}"
+                            multiple>
+                        <option value="">-- Characters will be populated --</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    `;
+
+    return priorityLevels.map(createPrioritySection).join('');
+}
+
+/**
+ * Set up behavior for advanced mode
+ * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ */
+function setupAdvancedBehavior(modalEventListeners = []) {
+    // Generate and insert advanced content first
+    const advancedSectionsContainer = document.getElementById('advanced-priority-sections');
+    if (advancedSectionsContainer) {
+        advancedSectionsContainer.innerHTML = generateAdvancedContent();
+    }
+
+    // Set up priority display sync
+    setupPriorityDisplaySync(modalEventListeners);
+
+    // Set up drawer behavior
+    setupDrawerBehavior(modalEventListeners);
+
+    // Set up budget behavior for all priority levels
+    setupOverrideBudgetBehavior(modalEventListeners);
+
+    // Populate character selectors
+    populateCharacterSelectors();
+
+    // Initialize Select2
+    initializeSelect2();
+}
+
+/**
+ * Set up budget behavior for override modal
+ * @param {Array} modalEventListeners - Array to track event listeners for cleanup
+ */
+function setupOverrideBudgetBehavior(modalEventListeners = []) {
+    const priorityLevels = [1, 2, 3, 4, 5];
+
+    for (const priority of priorityLevels) {
+        const budgetModeSelect = document.querySelector(`.override-budget-mode[data-priority="${priority}"]`);
+        const budgetValueContainer = document.querySelector(`.override-budget-value-container[data-priority="${priority}"]`);
+        const budgetUnit = document.querySelector(`.override-budget-unit[data-priority="${priority}"]`);
+        const budgetValueInput = document.querySelector(`.override-budget-value[data-priority="${priority}"]`);
+
+        if (budgetModeSelect && budgetValueContainer && budgetUnit && budgetValueInput) {
+            const changeHandler = () => {
+                const mode = budgetModeSelect.value;
+
+                if (mode === 'default') {
+                    budgetValueContainer.style.display = 'none';
+                } else {
+                    budgetValueContainer.style.display = 'block';
+
+                    // Update unit and validation based on mode
+                    if (mode === 'percentage_context' || mode === 'percentage_budget') {
+                        budgetUnit.textContent = '%';
+                        budgetValueInput.max = '100';
+                    } else if (mode === 'fixed') {
+                        budgetUnit.textContent = 'tokens';
+                        budgetValueInput.max = '10000';
+                    }
+                }
+            };
+
+            // Add input validation handler for clamping percentage values
+            const inputHandler = () => {
+                const mode = budgetModeSelect.value;
+                const value = parseInt(budgetValueInput.value);
+                const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
+
+                if (isPercentage && value > 100) {
+                    budgetValueInput.value = '100';
+                }
+            };
+
+            budgetModeSelect.addEventListener('change', changeHandler);
+            budgetValueInput.addEventListener('input', inputHandler);
+
+            modalEventListeners.push(
+                { element: budgetModeSelect, event: 'change', handler: changeHandler },
+                { element: budgetValueInput, event: 'input', handler: inputHandler }
+            );
+
+            // Set initial state
+            changeHandler();
+        }
+    }
+}
+
+/**
+ * Populate character selectors with available characters
+ */
+function populateCharacterSelectors() {
+    const context = getContext();
+    const characters = context?.characters || [];
+
+    const priorityLevels = [1, 2, 3, 4, 5];
+
+    for (const priority of priorityLevels) {
+        const selector = document.querySelector(`.override-character-filter[data-priority="${priority}"]`);
+        if (selector) {
+            // Clear existing options except the placeholder
+            selector.innerHTML = '';
+
+            // Add default option
+            if (characters.length === 0) {
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = '-- No characters found --';
+                selector.appendChild(defaultOption);
+            } else {
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = '-- Select characters --';
+                selector.appendChild(defaultOption);
+
+                // Add character options
+                characters.forEach((character) => {
+                    const option = document.createElement('option');
+                    const name = character.avatar.replace(/\.[^/.]+$/, '') ?? character.name;
+                    option.value = name;
+                    option.textContent = name;
+                    option.setAttribute('data-type', 'character');
+                    selector.appendChild(option);
+                });
+            }
+        }
+    }
+}
+
+/**
+ * Initialize Select2 for character selectors in override popup
+ */
+function initializeSelect2() {
+    const priorityLevels = [1, 2, 3, 4, 5];
+
+    for (const priority of priorityLevels) {
+        const selector = document.querySelector(`.override-character-filter[data-priority="${priority}"]`);
+        if (selector && $(selector).length) {
+            $(selector).select2({
+                width: '100%',
+                placeholder: 'Select characters for this priority level...',
+                allowClear: true,
+                closeOnSelect: false,
+                dropdownParent: $(selector).closest('.popup-content, .popup-body, [role="dialog"]').first()
+            });
+        }
+    }
+}
+
+/**
+ * Get character overrides from form
+ * @returns {Object} Character overrides object
+ */
+function getCharacterOverrides() {
+    const overrides = {};
+    const characterAssignments = {}; // Track which priorities each character is assigned to
+    const prioritySections = document.querySelectorAll('.priority-section');
+
+    prioritySections.forEach(section => {
+        const priority = section.getAttribute('data-priority');
+        const characterSelect = section.querySelector('select[data-priority="' + priority + '"].override-character-filter');
+        const budgetModeSelect = section.querySelector('select[data-priority="' + priority + '"].override-budget-mode');
+        const budgetValueInput = section.querySelector('input[data-priority="' + priority + '"].override-budget-value');
+
+        if (characterSelect && characterSelect.value) {
+            const selectedChars = $(characterSelect).val() || [];
+            const budgetMode = budgetModeSelect?.value || 'default';
+            const budgetValue = budgetValueInput?.value || '';
+
+            // Validate budget value for this priority section
+            if (selectedChars.length > 0 && budgetMode !== 'default') {
+                const rawValue = budgetValue.trim();
+                if (rawValue === '') {
+                    const priorityName = getPriorityName(parseInt(priority));
+                    toastr.error(`Budget value is required for Priority ${priority} - ${priorityName} when not using default budget mode`, 'Validation Error');
+                    return null;
+                }
+
+                const parsed = parseFloat(rawValue);
+                if (isNaN(parsed) || parsed < 1) {
+                    const priorityName = getPriorityName(parseInt(priority));
+                    toastr.error(`Budget value must be a positive number for Priority ${priority} - ${priorityName}`, 'Validation Error');
+                    return null;
+                }
+
+                // Additional validation based on budget mode
+                if (budgetMode === 'percentage_context' || budgetMode === 'percentage_budget') {
+                    if (parsed < 1 || parsed > 100) {
+                        const priorityName = getPriorityName(parseInt(priority));
+                        toastr.error(`Percentage values must be between 1 and 100 for Priority ${priority} - ${priorityName}`, 'Validation Error');
+                        return null;
+                    }
+                } else if (budgetMode === 'fixed') {
+                    if (parsed > 250000) {
+                        const priorityName = getPriorityName(parseInt(priority));
+                        toastr.error(`Fixed token count cannot exceed 250,000 for Priority ${priority} - ${priorityName}`, 'Validation Error');
+                        return null;
+                    }
+                }
+            }
+
+            selectedChars.forEach(chid => {
+                // Track priority assignments for duplicate detection
+                if (!characterAssignments[chid]) {
+                    characterAssignments[chid] = [];
+                }
+                characterAssignments[chid].push(parseInt(priority));
+
+                overrides[chid] = {
+                    priority: parseInt(priority),
+                    budgetMode: budgetMode,
+                    budget: budgetValue === '' ? null : parseFloat(budgetValue)
+                };
+            });
+        }
+    });
+
+    // Check for duplicates and block saving if found
+    const duplicates = Object.entries(characterAssignments).filter(([chid, priorities]) => priorities.length > 1);
+
+    if (duplicates.length > 0) {
+        const context = getContext();
+        const duplicateMessages = duplicates.map(([chid, priorities]) => {
+            const char = context?.characters?.find(c => c.avatar === chid);
+            const charName = char?.name || chid;
+            const priorityNames = priorities.map(p => `${p} - ${getPriorityName(p)}`).join(', ');
+            return `• ${charName}: assigned to priorities ${priorityNames}`;
+        });
+
+        const errorMessage = `Cannot save: Characters assigned to multiple priority levels.\n\n${duplicateMessages.join('\n')}\n\nPlease assign each character to only one priority level.`;
+
+        toastr.error(errorMessage, 'Duplicate Character Assignments', { timeOut: 8000 });
+        return null; // Return null to indicate validation failure
+    }
+
+    return overrides;
+}
+
+/**
+ * Get priority level name for display
+ * @param {number} priority - Priority level (1-5)
+ * @returns {string} Priority name
+ */
+function getPriorityName(priority) {
+    const names = {
+        5: 'Highest',
+        4: 'High',
+        3: 'Normal',
+        2: 'Low',
+        1: 'Lowest'
+    };
+    return names[priority] || 'Unknown';
 }
 
 /**
