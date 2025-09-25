@@ -2,6 +2,12 @@
 
 **← [Back to README](README.md)**
 
+## v1.1.0 (January 2025)
+- **🎭 Group Chat Character Overrides:** Major new feature for per-character lorebook behavior
+  - Different characters can now have different lorebook priorities during their turns in group chats
+  - Character-specific budget overrides allow fine-tuned resource allocation
+  - Seamless integration with existing lorebook settings - no breaking changes
+
 ## v1.0.0 (September 2025)
 - **Initial Release:** Complete lorebook priority and budget management system for SillyTavern
 - **Priority Control System:** Five-level priority system for lorebooks

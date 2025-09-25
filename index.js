@@ -1,9 +1,9 @@
 import { event_types, eventSource } from '../../../events.js';
 import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
+import { characters, stopGeneration } from '../../../../script.js';
 import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
-import { stopGeneration } from '../../../../script.js';
 
 const EXTENSION_NAME = 'stlo';
 const SELECTORS = {
@@ -41,7 +41,8 @@ const EXTENSION_STATE = {
     modalOpen: false,
     pendingAnimationFrame: null,
     isGenerating: false,
-    generationsSinceChatChange: 0
+    generationsSinceChatChange: 0,
+    currentSpeakingCharacter: null  // Track current speaking character for group chat overrides
 };
 
 // Utility functions
@@ -75,12 +76,26 @@ function setupEventHandlers() {
     };
     const generationStopHandler = () => { EXTENSION_STATE.isGenerating = false; };
     const generationEndHandler = () => { EXTENSION_STATE.isGenerating = false; };
-    const chatChangedHandler = () => { EXTENSION_STATE.generationsSinceChatChange = 0; };
+    const chatChangedHandler = () => {
+        EXTENSION_STATE.generationsSinceChatChange = 0;
+        EXTENSION_STATE.currentSpeakingCharacter = null;  // Clear character override state on chat change
+    };
+
+    // Group chat character override handler
+    const groupMemberDraftedHandler = (chId) => {
+        // Clear any stale state first, then set current speaking character
+        EXTENSION_STATE.currentSpeakingCharacter = null;
+
+        if (chId !== undefined && chId !== null && characters && characters[chId]) {
+            EXTENSION_STATE.currentSpeakingCharacter = characters[chId].avatar;
+        }
+    };
 
     eventSource.on(event_types.GENERATION_STARTED, generationStartHandler);
     eventSource.on(event_types.GENERATION_STOPPED, generationStopHandler);
     eventSource.on(event_types.GENERATION_ENDED, generationEndHandler);
     eventSource.on(event_types.CHAT_CHANGED, chatChangedHandler);
+    eventSource.on(event_types.GROUP_MEMBER_DRAFTED, groupMemberDraftedHandler);
 
     // Track for cleanup
     eventListeners.push(
@@ -88,7 +103,8 @@ function setupEventHandlers() {
         { source: eventSource, event: event_types.GENERATION_STARTED, handler: generationStartHandler },
         { source: eventSource, event: event_types.GENERATION_STOPPED, handler: generationStopHandler },
         { source: eventSource, event: event_types.GENERATION_ENDED, handler: generationEndHandler },
-        { source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedHandler }
+        { source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedHandler },
+        { source: eventSource, event: event_types.GROUP_MEMBER_DRAFTED, handler: groupMemberDraftedHandler }
     );
 }
 
@@ -395,6 +411,15 @@ async function setLorebookSettings(worldName, settings) {
  */
 async function getLorebookPriority(worldName) {
     const settings = await getLorebookSettings(worldName);
+
+    // Check for character-specific override in group chat
+    if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
+        const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
+        if (override && typeof override.priority === 'number') {
+            return override.priority;
+        }
+    }
+
     return settings.priority ?? PRIORITY_LEVELS.DEFAULT;
 }
 
@@ -1317,9 +1342,19 @@ async function calculateLorebookBudget(settings) {
             totalBudget = budgetCap;
         }
 
-        const budgetValue = settings.budget || 0;
+        // Check for character-specific override in group chat
+        let budgetValue = settings.budget || 0;
+        let budgetMode = settings.budgetMode;
 
-        switch (settings.budgetMode) {
+        if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
+            const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
+            if (override && override.budgetMode !== 'default') {
+                budgetMode = override.budgetMode;
+                budgetValue = override.budget || 0;
+            }
+        }
+
+        switch (budgetMode) {
             case 'percentage_context':
                 if (budgetValue >= 1 && budgetValue <= 100) {
                     return Math.floor((budgetValue / 100) * maxContext);

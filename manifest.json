@@ -1,10 +1,11 @@
 {
-  "display_name": "SillyTavern-LorebookOrdering",
+  "display_name": "Lorebook Ordering",
   "loading_order": 10,
   "requires": [],
   "optional": [],
   "js": "index.js",
   "author": "aikohanasaki",
-  "version": "1.0.0",
-  "description": "Adds lorebook-level priority and budget management to World Info. Allows complete control over which lorebooks activate first and how much context budget each lorebook can consume."
+  "license": "AGPL-3.0",
+  "version": "1.1.0",
+  "description": "Adds lorebook-level priority and budget management to World Info. Allows complete control over which lorebooks activate first and how much context budget each lorebook can consume. Now supports character-specific overrides in group chats."
 }
