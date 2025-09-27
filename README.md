@@ -1,6 +1,6 @@
 # 📚 Lorebook Ordering (A SillyTavern Extension)
 
-A SillyTavern extension that adds lorebook-level priority and budget management to World Info. Allows complete control over which lorebooks activate first and how much context budget each lorebook can consume. Perfect for users with multiple lorebooks who need fine-grained control over World Info behavior. **Now supports character-specific overrides in group chats!**
+A SillyTavern extension that adds lorebook-level priority and budget management to World Info. Allows complete control over which lorebooks activate first and how much context budget each lorebook can consume. Perfect for users with multiple lorebooks who need fine-grained control over World Info behavior. **Now supports character-specific overrides in group chats and precise order adjustment!**
 
 **📋 [Version History & Changelog](CHANGELOG.md)**
 
@@ -9,14 +9,21 @@ Settings are accessed via the "Lorebook Ordering" button in the World Info panel
 
 ---
 
-## 🚦 What's New (v1.1.0)
+## 🚦 What's New (v1.2.0)
 
+- **📊 Order Adjustment System:** Fine-tune lorebook entry processing order with precision
+- **🎯 Custom Adjustment Values:** Add -10,000 to +10,000 adjustment on top of priority levels
+- **🎭 Group Chat Controls:** "Group Chats Only" option for selective order adjustment application
+- **🔧 Character Override Support:** Order adjustment available in both main settings and character overrides
+- **📋 Seamless Integration:** Works perfectly with existing priority system - no breaking changes
+
+### Previous Release (v1.1.0)
 - **🎭 Group Chat Character Overrides:** Different characters can now have different lorebook priorities during their turns in group chats
 - **⚡ Smart State Management:** Automatic cleanup when switching between chats with robust error handling
 - **🔧 Enhanced Integration:** Improved event handling and optimized performance
 - **📋 Backward Compatible:** All existing functionality preserved - no breaking changes
 
-### Previous Release (v1.0.0)
+### Earlier Release (v1.0.0)
 - **Initial Release:** Complete lorebook priority and budget management system
 - **Priority Control:** Set custom priority levels (1-5) for each lorebook with Highest, High, Default, Low, and Lowest options
 - **Budget Management:** Four budget modes including percentage-based and fixed token allocations
@@ -75,6 +82,40 @@ Tested with these settings:
 - Higher priority lorebooks are processed first during World Info activation
 - Entries from higher priority lorebooks get preference in context budget allocation
 - Only works with "evenly" insertion strategy
+
+---
+
+## 📊 Order Adjustment System (NEW!)
+
+### **Fine-Tuning Beyond Priority**
+The Order Adjustment System allows precise control over lorebook entry processing order within the same priority level:
+
+- **Adjustment Range:** -10,000 to +10,000 values added on top of priority calculations
+- **Precise Control:** Fine-tune processing order without changing priority levels
+- **Mathematical Formula:** `Final Order = Priority × 10,000 + Order Adjustment + Original Entry Order`
+
+### **Example Usage**
+```
+Lorebook A: Priority 3, Order Adjustment +250
+Lorebook B: Priority 3, Order Adjustment -100
+Lorebook C: Priority 3, Order Adjustment 0 (default)
+
+Final Processing Order:
+1. Lorebook A: 30,250 + entry order (processes first)
+2. Lorebook C: 30,000 + entry order (default)
+3. Lorebook B: 29,900 + entry order (processes last)
+```
+
+### **Group Chat Controls**
+- **Always Apply:** Order adjustment works in both single chats and group chats (default)
+- **Group Chats Only:** Check this option to only apply order adjustment during group chats
+- **Character Overrides:** Set different order adjustments for specific characters in group chats
+
+### **When to Use Order Adjustment**
+- **Character vs World:** Boost character-specific lorebooks slightly above general world info
+- **Lore Hierarchy:** Ensure critical lore processes before supplementary information
+- **Memory Management:** Fine-tune when memories/LTM entries activate relative to other content
+- **Dialogue Priorities:** Control when dialogue-related lorebooks activate in conversations
 
 ---
 

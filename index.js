@@ -21,6 +21,8 @@ const DEFAULT_LOREBOOK_SETTINGS = {
     priority: null,     // null = default priority (3)
     budget: null,       // null = use ST default budget allocation
     budgetMode: 'default',  // 'default' | 'percentage_context' | 'percentage_budget' | 'fixed'
+    orderAdjustment: 0, // Order adjustment value (-10000 to +10000, default 0)
+    orderAdjustmentGroupOnly: false, // Only apply order adjustment in group chats
     characterOverrides: {}  // Character-specific priority overrides for group chats
 };
 
@@ -410,6 +412,33 @@ async function getLorebookPriority(worldName) {
     return settings.priority ?? PRIORITY_LEVELS.DEFAULT;
 }
 
+/**
+ * Get the order adjustment for a lorebook (with default fallback)
+ * @param {string} worldName - Name of the lorebook
+ * @returns {number} Order adjustment (-10000 to +10000, default 0)
+ */
+async function getLorebookOrderAdjustment(worldName) {
+    const settings = await getLorebookSettings(worldName);
+
+    // Check for character-specific override in group chat
+    if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
+        const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
+        if (override && typeof override.orderAdjustment === 'number') {
+            return override.orderAdjustment;
+        }
+    }
+
+    // Get main order adjustment setting
+    const orderAdjustment = settings.orderAdjustment ?? 0;
+
+    // If order adjustment is set to group chats only, return 0 for single chats
+    if (settings.orderAdjustmentGroupOnly && !EXTENSION_STATE.currentSpeakingCharacter) {
+        return 0;
+    }
+
+    return orderAdjustment;
+}
+
 
 
 /**
@@ -510,12 +539,18 @@ async function openLorebookSettings() {
                 const prioritySelect = document.getElementById(SELECTORS.LOREBOOK_PRIORITY_SELECT);
                 const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
                 const budgetValueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
+                const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
+                const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
+                const orderAdjustmentGroupOnly = document.getElementById('lorebook-order-adjustment-group-only');
 
-                if (prioritySelect && budgetModeSelect && budgetValueInput) {
+                if (prioritySelect && budgetModeSelect && budgetValueInput && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly) {
                     return {
                         priority: prioritySelect.value,
                         budgetMode: budgetModeSelect.value,
                         budgetValue: budgetValueInput.value,
+                        orderAdjustmentEnabled: orderAdjustmentEnabled.checked,
+                        orderAdjustment: orderAdjustmentInput.value,
+                        orderAdjustmentGroupOnly: orderAdjustmentGroupOnly.checked,
                         timestamp: Date.now()
                     };
                 }
@@ -578,6 +613,17 @@ async function openLorebookSettings() {
                     validatedPriority = null; // Explicitly set to null for default
                 }
 
+                // Validate order adjustment
+                let validatedOrderAdjustment = 0;
+                if (formState.orderAdjustmentEnabled && formState.orderAdjustment !== '') {
+                    const parsed = parseInt(formState.orderAdjustment);
+                    if (isNaN(parsed) || parsed < -10000 || parsed > 10000) {
+                        toastr.error('Order adjustment must be between -10000 and 10000', 'Validation Error');
+                        return null;
+                    }
+                    validatedOrderAdjustment = parsed;
+                }
+
                 // Validate character overrides (this may return null if duplicates found)
                 const characterOverrides = getCharacterOverrides();
                 if (characterOverrides === null) {
@@ -588,6 +634,8 @@ async function openLorebookSettings() {
                     priority: validatedPriority,
                     budgetMode: budgetModeValue,
                     budget: validatedBudgetValue,
+                    orderAdjustment: validatedOrderAdjustment,
+                    orderAdjustmentGroupOnly: formState.orderAdjustmentGroupOnly || false,
                     characterOverrides: characterOverrides
                 };
 
@@ -803,6 +851,46 @@ function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
         }
     }
 
+    // Set up order adjustment behavior for main settings
+    const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
+    const orderAdjustmentContainer = document.getElementById('lorebook-order-adjustment-container');
+    const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
+
+    if (orderAdjustmentEnabled && orderAdjustmentContainer && orderAdjustmentInput) {
+        const orderAdjustmentChangeHandler = () => {
+            if (orderAdjustmentEnabled.checked) {
+                orderAdjustmentContainer.classList.remove('hidden');
+                if (orderAdjustmentInput.value === '' || orderAdjustmentInput.value === '0') {
+                    orderAdjustmentInput.value = '0';
+                }
+            } else {
+                orderAdjustmentContainer.classList.add('hidden');
+                orderAdjustmentInput.value = '0';
+            }
+        };
+
+        // Add input validation handler for order adjustment
+        const orderAdjustmentInputHandler = () => {
+            const value = parseInt(orderAdjustmentInput.value);
+            if (value < -10000) {
+                orderAdjustmentInput.value = '-10000';
+            } else if (value > 10000) {
+                orderAdjustmentInput.value = '10000';
+            }
+        };
+
+        orderAdjustmentEnabled.addEventListener('change', orderAdjustmentChangeHandler);
+        orderAdjustmentInput.addEventListener('input', orderAdjustmentInputHandler);
+
+        modalEventListeners.push(
+            { element: orderAdjustmentEnabled, event: 'change', handler: orderAdjustmentChangeHandler },
+            { element: orderAdjustmentInput, event: 'input', handler: orderAdjustmentInputHandler }
+        );
+
+        // Set initial state
+        orderAdjustmentChangeHandler();
+    }
+
     // Set up Group Chat Overrides behavior
     setupAdvancedBehavior(modalEventListeners, currentSettings);
 }
@@ -821,6 +909,7 @@ function createBudgetControls(prefix, settings = {}, priorityLevel = null) {
     const isOverride = prefix.includes('override');
 
     if (isOverride && priorityLevel) {
+        const orderAdjustment = settings.orderAdjustment ?? 0;
         return `
         <div class="flex-container flexGap10 MarginTop5">
             <div class="flex2">
@@ -842,8 +931,34 @@ function createBudgetControls(prefix, settings = {}, priorityLevel = null) {
                     <span class="${prefix}-budget-unit" data-priority="${priorityLevel}">%</span>
                 </div>
             </div>
+        </div>
+
+        <div class="flex-container flexGap10 MarginTop10">
+            <div class="flex1">
+                <label class="checkbox_label" for="${prefix}-order-adjustment-enabled-${priorityLevel}">
+                    <input type="checkbox" id="${prefix}-order-adjustment-enabled-${priorityLevel}"
+                           class="${prefix}-order-adjustment-enabled" data-priority="${priorityLevel}"
+                           ${orderAdjustment !== 0 ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    Enable Order Adjustment
+                </label>
+                <small>Fine-tune processing order within this priority level</small>
+            </div>
+
+            <div class="flex1 ${prefix}-order-adjustment-container" data-priority="${priorityLevel}"
+                 style="display: ${orderAdjustment !== 0 ? 'block' : 'none'};">
+                <h5>Order Adjustment</h5>
+                <div class="flexNoWrap flexGap5 justifyCenter">
+                    <input type="number" class="text_pole textarea_compact ${prefix}-order-adjustment"
+                           data-priority="${priorityLevel}" min="-10000" max="10000" step="1"
+                           value="${orderAdjustment}" placeholder="0" style="width: 100px;">
+                    <small style="color: #888;">-10k to +10k</small>
+                </div>
+                <small>Higher values process first. Example: +250 for slight boost, -500 for lower priority.</small>
+            </div>
         </div>`;
     } else {
+        const orderAdjustment = settings.orderAdjustment ?? 0;
         return `
         <h4>Budget Mode</h4>
         <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
@@ -862,6 +977,37 @@ function createBudgetControls(prefix, settings = {}, priorityLevel = null) {
                    value="${budgetValue}" min="0" max="10000" step="1"
                    placeholder="Enter value..." style="width: 100px;">
             <span id="budget-unit">%</span>
+        </div>
+    </div>
+
+    <div class="world_entry_form_control MarginTop10">
+        <label class="checkbox_label" for="lorebook-order-adjustment-enabled">
+            <input type="checkbox" id="lorebook-order-adjustment-enabled"
+                   ${orderAdjustment !== 0 ? 'checked' : ''}>
+            <span class="checkmark"></span>
+            Enable Order Adjustment
+        </label>
+        <small>Fine-tune processing order within this lorebook's priority level</small>
+
+        <div class="world_entry_form_control MarginTop10${orderAdjustment !== 0 ? '' : ' hidden'}" id="lorebook-order-adjustment-container">
+            <h4>Order Adjustment</h4>
+            <small>Higher values process first. Examples: +250 for slight boost, -500 for lower priority.</small>
+            <div class="flexNoWrap flexGap5 justifyCenter">
+                <input type="number" id="lorebook-order-adjustment" class="text_pole textarea_compact"
+                       value="${orderAdjustment}" min="-10000" max="10000" step="1"
+                       placeholder="0" style="width: 100px;">
+                <small style="color: #888;">-10k to +10k</small>
+            </div>
+
+            <div class="MarginTop10">
+                <label class="checkbox_label" for="lorebook-order-adjustment-group-only">
+                    <input type="checkbox" id="lorebook-order-adjustment-group-only"
+                           ${settings.orderAdjustmentGroupOnly ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    Group Chats Only
+                </label>
+                <small>Only apply order adjustment during group chats (ignored in single character chats)</small>
+            </div>
         </div>
     </div>`;
     }
@@ -1050,6 +1196,46 @@ function setupOverrideBudgetBehavior(modalEventListeners = []) {
             // Set initial state
             changeHandler();
         }
+
+        // Order adjustment behavior
+        const orderAdjustmentEnabled = document.querySelector(`.override-order-adjustment-enabled[data-priority="${priority}"]`);
+        const orderAdjustmentContainer = document.querySelector(`.override-order-adjustment-container[data-priority="${priority}"]`);
+        const orderAdjustmentInput = document.querySelector(`.override-order-adjustment[data-priority="${priority}"]`);
+
+        if (orderAdjustmentEnabled && orderAdjustmentContainer && orderAdjustmentInput) {
+            const orderAdjustmentChangeHandler = () => {
+                if (orderAdjustmentEnabled.checked) {
+                    orderAdjustmentContainer.style.display = 'block';
+                    if (orderAdjustmentInput.value === '' || orderAdjustmentInput.value === '0') {
+                        orderAdjustmentInput.value = '0';
+                    }
+                } else {
+                    orderAdjustmentContainer.style.display = 'none';
+                    orderAdjustmentInput.value = '0';
+                }
+            };
+
+            // Add input validation handler for order adjustment
+            const orderAdjustmentInputHandler = () => {
+                const value = parseInt(orderAdjustmentInput.value);
+                if (value < -10000) {
+                    orderAdjustmentInput.value = '-10000';
+                } else if (value > 10000) {
+                    orderAdjustmentInput.value = '10000';
+                }
+            };
+
+            orderAdjustmentEnabled.addEventListener('change', orderAdjustmentChangeHandler);
+            orderAdjustmentInput.addEventListener('input', orderAdjustmentInputHandler);
+
+            modalEventListeners.push(
+                { element: orderAdjustmentEnabled, event: 'change', handler: orderAdjustmentChangeHandler },
+                { element: orderAdjustmentInput, event: 'input', handler: orderAdjustmentInputHandler }
+            );
+
+            // Set initial state
+            orderAdjustmentChangeHandler();
+        }
     }
 }
 
@@ -1123,6 +1309,27 @@ function populateCharacterOverrides(characterOverrides = {}) {
 
                 if (budgetValueInput && settings.budget !== null && settings.budget !== undefined) {
                     budgetValueInput.value = settings.budget;
+                }
+            }
+
+            // Set order adjustment if it exists and is not 0
+            if (settings.orderAdjustment !== undefined && settings.orderAdjustment !== 0) {
+                const orderAdjustmentEnabled = document.querySelector(`.override-order-adjustment-enabled[data-priority="${priority}"]`);
+                const orderAdjustmentInput = document.querySelector(`.override-order-adjustment[data-priority="${priority}"]`);
+                const orderAdjustmentContainer = document.querySelector(`.override-order-adjustment-container[data-priority="${priority}"]`);
+
+                if (orderAdjustmentEnabled) {
+                    orderAdjustmentEnabled.checked = true;
+                    // Trigger change event to update UI
+                    orderAdjustmentEnabled.dispatchEvent(new Event('change'));
+                }
+
+                if (orderAdjustmentInput) {
+                    orderAdjustmentInput.value = settings.orderAdjustment;
+                }
+
+                if (orderAdjustmentContainer) {
+                    orderAdjustmentContainer.style.display = 'block';
                 }
             }
         }
@@ -1208,10 +1415,18 @@ function getCharacterOverrides() {
                 }
                 characterAssignments[chid].push(parseInt(priority));
 
+                // Get order adjustment values
+                const orderAdjustmentEnabled = section.querySelector(`input[data-priority="${priority}"].override-order-adjustment-enabled`);
+                const orderAdjustmentInput = section.querySelector(`input[data-priority="${priority}"].override-order-adjustment`);
+                const orderAdjustment = (orderAdjustmentEnabled && orderAdjustmentEnabled.checked && orderAdjustmentInput)
+                    ? parseInt(orderAdjustmentInput.value) || 0
+                    : 0;
+
                 overrides[chid] = {
                     priority: parseInt(priority),
                     budgetMode: budgetMode,
-                    budget: budgetValue === '' ? null : parseFloat(budgetValue)
+                    budget: budgetValue === '' ? null : parseFloat(budgetValue),
+                    orderAdjustment: orderAdjustment
                 };
             });
         }
@@ -1284,9 +1499,10 @@ async function preActivateBudgetedEntries(eventData, budgetedLorebooks) {
 
             // Apply priority-based ordering to entries from this lorebook
             const lorebookPriority = await getLorebookPriority(lorebookName);
+            const orderAdjustment = await getLorebookOrderAdjustment(lorebookName);
             for (const entry of lorebookEntries) {
                 const originalOrder = Math.min(entry.order ?? 100, 9999);
-                entry.order = lorebookPriority * 10000 + originalOrder;
+                entry.order = lorebookPriority * 10000 + orderAdjustment + originalOrder;
             }
 
             // Sort entries by priority-modified order (highest first)
@@ -1484,12 +1700,14 @@ async function combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLor
             try {
                 // Entries without world name get default priority
                 const priority = entry.world ? await getLorebookPriority(entry.world) : PRIORITY_LEVELS.DEFAULT;
+                const orderAdjustment = entry.world ? await getLorebookOrderAdjustment(entry.world) : 0;
                 const originalOrder = Math.min(entry.order ?? 100, 9999); // Cap to prevent overflow
 
-                // Formula: priority * 10000 + originalOrder
+                // Formula: priority * 10000 + orderAdjustment + originalOrder
                 // Priority 1 → order 10000+ (processes last)
                 // Priority 5 → order 50000+ (processes first)
-                entry.order = priority * 10000 + originalOrder;
+                // Order adjustment: -10000 to +10000 for fine-tuning
+                entry.order = priority * 10000 + orderAdjustment + originalOrder;
 
             } catch (error) {
                 console.warn(`Error setting priority for entry from ${entry.world}:`, error);
