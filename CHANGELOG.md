@@ -5,11 +5,9 @@
 ## v1.2.0 (September 26, 2025)
 - **📊 Order Adjustment System:** New fine-tuning feature for lorebook entry processing order
   - Add custom order adjustment values (-10,000 to +10,000) on top of priority levels
-  - Example: Priority 3 + adjustment +250 = final order 30,250 for precise control
+  - Example: Priority 3 + adjustment +250 = final order +30,250 for precise control
   - Available in both main lorebook settings and character overrides
   - "Group Chats Only" option allows order adjustment to be applied selectively
-  - Seamless integration with existing priority system - no breaking changes
-  - Perfect for fine-tuning processing order within the same priority level
 
 ## v1.1.1 (September 25, 2025)
 - **🔧 Settings Persistence Fix:** Fixed bug where settings would not reload properly in UI
