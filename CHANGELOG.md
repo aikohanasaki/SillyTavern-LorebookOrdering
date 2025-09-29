@@ -2,6 +2,11 @@
 
 **← [Back to README](README.md)**
 
+## v1.3.1 (September 29, 2025)
+- **🔧 Fix name/avatar name mismatch:** Fixed priority mismatch in name/avatar name clash resolution
+  - if avatar name and char name differed, storage vs detection methods differed 
+  - fixed to be the same methods
+
 ## v1.3.0 (September 29, 2025)
 - **🔧 Simplified Architecture:** Removed budget management system
   - Removed complex budget allocation modes that caused more problems than they solved
