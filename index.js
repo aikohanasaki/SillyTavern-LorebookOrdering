@@ -1,8 +1,7 @@
 import { event_types, eventSource } from '../../../events.js';
-import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
 import { characters, stopGeneration } from '../../../../script.js';
-import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
+import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
 
 const EXTENSION_NAME = 'stlo';
@@ -10,17 +9,12 @@ const SELECTORS = {
     WORLD_INFO_SEARCH: 'world_info_search',
     LOREBOOK_ORDERING_BUTTON: 'lorebook_ordering_button',
     WORLD_EDITOR_SELECT: '#world_editor_select',
-    LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select',
-    LOREBOOK_BUDGET_MODE: 'lorebook_budget_mode',
-    LOREBOOK_BUDGET_VALUE: 'lorebook_budget_value',
-    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container'
+    LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select'
 };
 
 // Default settings for lorebooks
 const DEFAULT_LOREBOOK_SETTINGS = {
     priority: null,     // null = default priority (3)
-    budget: null,       // null = use ST default budget allocation
-    budgetMode: 'default',  // 'default' | 'percentage_context' | 'percentage_budget' | 'fixed'
     orderAdjustment: 0, // Order adjustment value (-10000 to +10000, default 0)
     orderAdjustmentGroupOnly: false, // Only apply order adjustment in group chats
     characterOverrides: {}  // Character-specific priority overrides for group chats
@@ -126,7 +120,7 @@ function addLorebookOrderingButton() {
         const button = document.createElement('div');
         button.id = SELECTORS.LOREBOOK_ORDERING_BUTTON;
         button.className = 'menu_button fa-solid fa-bars-staggered';
-        button.title = 'Configure STLO Priority & Budget';
+        button.title = 'Configure STLO Priority';
 
         // Add click handler
         button.addEventListener('click', async () => {
@@ -194,19 +188,8 @@ async function handleWorldInfoEntriesLoaded(eventData) {
             return;
         }
 
-        // Apply evenly strategy implementation
-
-        // Identify lorebooks with custom budgets
-        const budgetedLorebooks = await identifyBudgetedLorebooks(eventData);
-
-        // Pre-activate entries for budgeted lorebooks
-        const preActivatedEntries = await preActivateBudgetedEntries(eventData, budgetedLorebooks);
-
-        // Remove original entries from budgeted lorebooks
-        removeOriginalBudgetedEntries(eventData, budgetedLorebooks);
-
-        // Combine all arrays into globalLore with priority ordering
-        await combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLorebooks);
+        // Apply evenly strategy implementation with priority ordering only
+        await applyPriorityOrdering(eventData);
 
     } catch (error) {
         toastr.warning('STLO encountered an error. Disabling STLO, returning to core ST function', 'Extension Warning');
@@ -215,9 +198,9 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 }
 
 /**
- * Check if any lorebooks have special priority or budget settings
+ * Check if any lorebooks have special priority settings
  * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @returns {boolean} True if any lorebook has non-default settings
+ * @returns {boolean} True if any lorebook has non-default priority
  */
 async function checkForSpecialLorebooks(eventData) {
     try {
@@ -235,18 +218,13 @@ async function checkForSpecialLorebooks(eventData) {
             return false;
         }
 
-        // Check each lorebook for special settings
+        // Check each lorebook for special priority settings
         for (const worldName of uniqueWorlds) {
             try {
                 const settings = await getLorebookSettings(worldName);
 
                 // Check for non-default priority
                 if (settings.priority !== null && settings.priority !== PRIORITY_LEVELS.DEFAULT) {
-                    return true;
-                }
-
-                // Check for custom budget mode
-                if (settings.budgetMode !== 'default') {
                     return true;
                 }
             } catch (error) {
@@ -270,7 +248,7 @@ async function showStrategyWarning() {
         const warningHtml = `
             <div style="text-align: left; line-height: 1.4;">
                 <h4>⚠️ Caution</h4>
-                <span>You have lorebooks with custom priority or budget settings, but your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
+                <span>You have lorebooks with custom priority settings, but your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
             </div>
         `;
 
@@ -294,43 +272,7 @@ async function showStrategyWarning() {
     });
 }
 
-/**
- * Identify lorebooks with custom budget settings
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @returns {string[]} Array of lorebook names with custom budgets
- */
-async function identifyBudgetedLorebooks(eventData) {
-    try {
-        // Collect all unique lorebook names
-        const allEntries = [
-            ...(eventData.globalLore || []),
-            ...(eventData.characterLore || []),
-            ...(eventData.chatLore || []),
-            ...(eventData.personaLore || [])
-        ];
 
-        const uniqueWorlds = new Set(allEntries.map(entry => entry.world).filter(Boolean));
-        const budgetedLorebooks = [];
-
-        // Check each lorebook for custom budget settings
-        for (const worldName of uniqueWorlds) {
-            try {
-                const settings = await getLorebookSettings(worldName);
-                if (settings.budgetMode !== 'default') {
-                    budgetedLorebooks.push(worldName);
-                }
-            } catch (error) {
-                console.warn(`Error checking budget settings for lorebook ${worldName}:`, error);
-            }
-        }
-
-
-        return budgetedLorebooks;
-    } catch (error) {
-        console.error('Error identifying budgeted lorebooks:', error);
-        return [];
-    }
-}
 
 /**
  * Get settings for a specific lorebook
@@ -494,7 +436,7 @@ async function openLorebookSettings() {
             <div class="world_entry_form_control MarginBot5 alignCenteritems">
                 <h3 class="marginBot10">📚 ST Lorebook Ordering</h3>
                 <h4>Lorebook Priority</h4>
-                <small>Higher numbers (4-5) process first and get budget priority. Lower numbers (1-2) process last.</small>
+                <small>Higher numbers (4-5) process first. Lower numbers (1-2) process last.</small>
 
                 <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
                     <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Highest Priority (Processes First)</option>
@@ -505,8 +447,35 @@ async function openLorebookSettings() {
                 </select>
             </div>
 
-            <div class="world_entry_form_control MarginBot5">
-                ${createBudgetControls('lorebook', currentSettings)}
+            <div class="world_entry_form_control MarginTop10">
+                <label class="checkbox_label" for="lorebook-order-adjustment-enabled">
+                    <input type="checkbox" id="lorebook-order-adjustment-enabled"
+                           ${currentSettings.orderAdjustment !== 0 ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    Enable Order Adjustment
+                </label>
+                <small>Fine-tune processing order within this lorebook's priority level</small>
+
+                <div class="world_entry_form_control MarginTop10${currentSettings.orderAdjustment !== 0 ? '' : ' hidden'}" id="lorebook-order-adjustment-container">
+                    <h4>Order Adjustment</h4>
+                    <small>Higher values process first. Examples: +250 for slight boost, -500 for lower priority.</small>
+                    <div class="flexNoWrap flexGap5 justifyCenter">
+                        <input type="number" id="lorebook-order-adjustment" class="text_pole textarea_compact"
+                               value="${currentSettings.orderAdjustment}" min="-10000" max="10000" step="1"
+                               placeholder="0" style="width: 100px;">
+                        <small style="color: #888;">-10k to +10k</small>
+                    </div>
+
+                    <div class="MarginTop10">
+                        <label class="checkbox_label" for="lorebook-order-adjustment-group-only">
+                            <input type="checkbox" id="lorebook-order-adjustment-group-only"
+                                   ${currentSettings.orderAdjustmentGroupOnly ? 'checked' : ''}>
+                            <span class="checkmark"></span>
+                            Group Chats Only
+                        </label>
+                        <small>Only apply order adjustment during group chats (ignored in single character chats)</small>
+                    </div>
+                </div>
             </div>
 
             <!-- Group Chat Overrides -->
@@ -537,17 +506,13 @@ async function openLorebookSettings() {
             // Function to capture current form state
             const captureFormState = () => {
                 const prioritySelect = document.getElementById(SELECTORS.LOREBOOK_PRIORITY_SELECT);
-                const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
-                const budgetValueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
                 const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
                 const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
                 const orderAdjustmentGroupOnly = document.getElementById('lorebook-order-adjustment-group-only');
 
-                if (prioritySelect && budgetModeSelect && budgetValueInput && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly) {
+                if (prioritySelect && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly) {
                     return {
                         priority: prioritySelect.value,
-                        budgetMode: budgetModeSelect.value,
-                        budgetValue: budgetValueInput.value,
                         orderAdjustmentEnabled: orderAdjustmentEnabled.checked,
                         orderAdjustment: orderAdjustmentInput.value,
                         orderAdjustmentGroupOnly: orderAdjustmentGroupOnly.checked,
@@ -565,40 +530,6 @@ async function openLorebookSettings() {
                 }
 
                 const priorityValue = formState.priority;
-                const budgetModeValue = formState.budgetMode;
-                const budgetValue = formState.budgetValue;
-
-
-                // Validate budget value if not default mode
-                let validatedBudgetValue = null;
-                if (budgetModeValue !== 'default') {
-                    const rawValue = budgetValue.trim();
-                    if (rawValue === '') {
-                        toastr.error('Budget value is required when not using default mode', 'Validation Error');
-                        return null;
-                    }
-
-                    const parsed = parseInt(rawValue);
-                    if (isNaN(parsed) || parsed < 1) {
-                        toastr.error('Budget value must be a positive integer', 'Validation Error');
-                        return null;
-                    }
-
-                    // Additional validation based on budget mode with proper range checking
-                    if (budgetModeValue === 'percentage_context' || budgetModeValue === 'percentage_budget') {
-                        if (parsed < 1 || parsed > 100) {
-                            toastr.error('Percentage values must be between 1 and 100', 'Validation Error');
-                            return null;
-                        }
-                    } else if (budgetModeValue === 'fixed') {
-                        if (parsed > 250000) { // Reasonable upper limit for fixed token count
-                            toastr.error('Fixed token count cannot exceed 250,000', 'Validation Error');
-                            return null;
-                        }
-                    }
-
-                    validatedBudgetValue = parsed;
-                }
 
                 // Validate priority parsing
                 let validatedPriority = null;
@@ -632,8 +563,6 @@ async function openLorebookSettings() {
 
                 const validatedForm = {
                     priority: validatedPriority,
-                    budgetMode: budgetModeValue,
-                    budget: validatedBudgetValue,
                     orderAdjustment: validatedOrderAdjustment,
                     orderAdjustmentGroupOnly: formState.orderAdjustmentGroupOnly || false,
                     characterOverrides: characterOverrides
@@ -735,122 +664,6 @@ async function openLorebookSettings() {
  * @param {Object} currentSettings - Current lorebook settings
  */
 function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
-    const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
-    const budgetValueContainer = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER);
-    const budgetHintText = document.getElementById('budget-hint');
-    const budgetUnit = document.getElementById('budget-unit');
-    const budgetValueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
-
-    // Validate DOM elements are actual HTMLElements
-    if (budgetModeSelect && budgetValueContainer && budgetHintText && budgetUnit && budgetValueInput &&
-        budgetModeSelect instanceof HTMLElement &&
-        budgetValueContainer instanceof HTMLElement &&
-        budgetHintText instanceof HTMLElement &&
-        budgetUnit instanceof HTMLElement &&
-        budgetValueInput instanceof HTMLElement) {
-
-        // Store values for each mode type to preserve when switching
-        const currentMode = budgetModeSelect.value;
-        const currentValue = budgetValueInput.value || '';
-        const isCurrentModePercentage = currentMode === 'percentage_context' || currentMode === 'percentage_budget';
-
-        const storedValues = {
-            percentage: isCurrentModePercentage ? currentValue : '',
-            fixed: (currentMode === 'fixed') ? currentValue : ''
-        };
-
-        const updateValidation = (mode) => {
-            const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
-            budgetValueInput.max = isPercentage ? '100' : '10000';
-        };
-
-        const changeHandler = () => {
-            const mode = budgetModeSelect.value;
-            const previousMode = budgetModeSelect.dataset.previousMode || mode;
-
-            if (mode === 'default') {
-                budgetValueContainer.classList.add('hidden');
-            } else {
-                budgetValueContainer.classList.remove('hidden');
-
-                // Store current value for the previous mode before switching
-                if (previousMode !== mode) {
-                    const wasPreviousPercentage = previousMode === 'percentage_context' || previousMode === 'percentage_budget';
-                    if (wasPreviousPercentage) {
-                        storedValues.percentage = budgetValueInput.value;
-                    } else if (previousMode === 'fixed') {
-                        storedValues.fixed = budgetValueInput.value;
-                    }
-                }
-
-                // Update unit and hint text based on mode
-                switch (mode) {
-                    case 'percentage_context':
-                        budgetUnit.textContent = '%';
-                        budgetHintText.textContent = 'Percentage of total context length (1-100).';
-                        // Restore percentage value or clamp if switching from fixed
-                        budgetValueInput.value = storedValues.percentage || (parseInt(storedValues.fixed) > 100 ? '100' : storedValues.fixed);
-                        break;
-                    case 'percentage_budget':
-                        budgetUnit.textContent = '%';
-                        budgetHintText.textContent = 'Percentage of allocated World Info budget (1-100).';
-                        // Restore percentage value or clamp if switching from fixed
-                        budgetValueInput.value = storedValues.percentage || (parseInt(storedValues.fixed) > 100 ? '100' : storedValues.fixed);
-                        break;
-                    case 'fixed':
-                        budgetUnit.textContent = 'tokens';
-                        budgetHintText.textContent = 'Fixed number of tokens this lorebook can use.';
-                        // Restore fixed value
-                        budgetValueInput.value = storedValues.fixed;
-                        break;
-                }
-
-                updateValidation(mode);
-                budgetModeSelect.dataset.previousMode = mode;
-            }
-        };
-
-        // Add input validation handler
-        const inputHandler = () => {
-            const mode = budgetModeSelect.value;
-            const value = parseInt(budgetValueInput.value);
-            const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
-
-            if (isPercentage && value > 100) {
-                budgetValueInput.value = '100';
-            }
-
-            // Update stored value for current mode
-            if (isPercentage) {
-                storedValues.percentage = budgetValueInput.value;
-            } else if (mode === 'fixed') {
-                storedValues.fixed = budgetValueInput.value;
-            }
-        };
-
-        budgetModeSelect.addEventListener('change', changeHandler);
-        budgetValueInput.addEventListener('input', inputHandler);
-
-        // Track listeners for cleanup
-        modalEventListeners.push(
-            { element: budgetModeSelect, event: 'change', handler: changeHandler },
-            { element: budgetValueInput, event: 'input', handler: inputHandler }
-        );
-
-        // Trigger the change event to set initial state
-        try {
-            budgetModeSelect.dispatchEvent(new Event('change'));
-        } catch (error) {
-            console.error('Error dispatching change event:', error);
-            // Manually trigger the change handler as fallback
-            try {
-                changeHandler();
-            } catch (handlerError) {
-                console.error('Error in manual change handler fallback:', handlerError);
-            }
-        }
-    }
-
     // Set up order adjustment behavior for main settings
     const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
     const orderAdjustmentContainer = document.getElementById('lorebook-order-adjustment-container');
@@ -895,123 +708,6 @@ function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
     setupAdvancedBehavior(modalEventListeners, currentSettings);
 }
 
-/**
- * Create budget control HTML section
- * @param {string} prefix - CSS class prefix for selectors
- * @param {Object} settings - Budget settings with budgetMode and budget properties
- * @param {number|null} [priorityLevel=null] - Priority level for override controls
- * @returns {string} HTML string for budget controls
- */
-function createBudgetControls(prefix, settings = {}, priorityLevel = null) {
-    const budgetMode = settings.budgetMode || 'default';
-    const budgetValue = settings.budget || '';
-    const isHidden = budgetMode === 'default';
-    const isOverride = prefix.includes('override');
-
-    if (isOverride && priorityLevel) {
-        const orderAdjustment = settings.orderAdjustment ?? 0;
-        return `
-        <div class="flex-container flexGap10 MarginTop5">
-            <div class="flex2">
-                <h5>Budget Mode</h5>
-                <select class="text_pole textarea_compact ${prefix}-budget-mode" data-priority="${priorityLevel}">
-                    <option value="default" ${budgetMode === 'default' ? 'selected' : ''}>Default (Use Lorebook Settings)</option>
-                    <option value="percentage_context" ${budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
-                    <option value="percentage_budget" ${budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
-                    <option value="fixed" ${budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
-                </select>
-            </div>
-
-            <div class="flex1 ${prefix}-budget-value-container" data-priority="${priorityLevel}" style="display: ${isHidden ? 'none' : 'block'};">
-                <h5>Budget Value</h5>
-                <div class="flexNoWrap flexGap5 justifyCenter">
-                    <input type="number" class="text_pole textarea_compact ${prefix}-budget-value"
-                           data-priority="${priorityLevel}" min="0" max="10000" step="1"
-                           value="${budgetValue}" placeholder="Value..." style="width: 80px;">
-                    <span class="${prefix}-budget-unit" data-priority="${priorityLevel}">%</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="flex-container flexGap10 MarginTop10">
-            <div class="flex1">
-                <label class="checkbox_label" for="${prefix}-order-adjustment-enabled-${priorityLevel}">
-                    <input type="checkbox" id="${prefix}-order-adjustment-enabled-${priorityLevel}"
-                           class="${prefix}-order-adjustment-enabled" data-priority="${priorityLevel}"
-                           ${orderAdjustment !== 0 ? 'checked' : ''}>
-                    <span class="checkmark"></span>
-                    Enable Order Adjustment
-                </label>
-                <small>Fine-tune processing order within this priority level</small>
-            </div>
-
-            <div class="flex1 ${prefix}-order-adjustment-container" data-priority="${priorityLevel}"
-                 style="display: ${orderAdjustment !== 0 ? 'block' : 'none'};">
-                <h5>Order Adjustment</h5>
-                <div class="flexNoWrap flexGap5 justifyCenter">
-                    <input type="number" class="text_pole textarea_compact ${prefix}-order-adjustment"
-                           data-priority="${priorityLevel}" min="-10000" max="10000" step="1"
-                           value="${orderAdjustment}" placeholder="0" style="width: 100px;">
-                    <small style="color: #888;">-10k to +10k</small>
-                </div>
-                <small>Higher values process first. Example: +250 for slight boost, -500 for lower priority.</small>
-            </div>
-        </div>`;
-    } else {
-        const orderAdjustment = settings.orderAdjustment ?? 0;
-        return `
-        <h4>Budget Mode</h4>
-        <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
-            <option value="default" ${budgetMode === 'default' ? 'selected' : ''}>Default (Use SillyTavern Settings)</option>
-            <option value="percentage_context" ${budgetMode === 'percentage_context' ? 'selected' : ''}>Percentage of Max Context</option>
-            <option value="percentage_budget" ${budgetMode === 'percentage_budget' ? 'selected' : ''}>Percentage of WI Budget</option>
-            <option value="fixed" ${budgetMode === 'fixed' ? 'selected' : ''}>Fixed Token Count</option>
-        </select>
-    </div>
-
-    <div class="world_entry_form_control${isHidden ? ' hidden' : ''}" id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}">
-        <h4>Budget Value</h4>
-        <small id="budget-hint">Enter the budget value for this lorebook.</small>
-        <div class="flexNoWrap flexGap5 justifyCenter">
-            <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
-                   value="${budgetValue}" min="0" max="10000" step="1"
-                   placeholder="Enter value..." style="width: 100px;">
-            <span id="budget-unit">%</span>
-        </div>
-    </div>
-
-    <div class="world_entry_form_control MarginTop10">
-        <label class="checkbox_label" for="lorebook-order-adjustment-enabled">
-            <input type="checkbox" id="lorebook-order-adjustment-enabled"
-                   ${orderAdjustment !== 0 ? 'checked' : ''}>
-            <span class="checkmark"></span>
-            Enable Order Adjustment
-        </label>
-        <small>Fine-tune processing order within this lorebook's priority level</small>
-
-        <div class="world_entry_form_control MarginTop10${orderAdjustment !== 0 ? '' : ' hidden'}" id="lorebook-order-adjustment-container">
-            <h4>Order Adjustment</h4>
-            <small>Higher values process first. Examples: +250 for slight boost, -500 for lower priority.</small>
-            <div class="flexNoWrap flexGap5 justifyCenter">
-                <input type="number" id="lorebook-order-adjustment" class="text_pole textarea_compact"
-                       value="${orderAdjustment}" min="-10000" max="10000" step="1"
-                       placeholder="0" style="width: 100px;">
-                <small style="color: #888;">-10k to +10k</small>
-            </div>
-
-            <div class="MarginTop10">
-                <label class="checkbox_label" for="lorebook-order-adjustment-group-only">
-                    <input type="checkbox" id="lorebook-order-adjustment-group-only"
-                           ${settings.orderAdjustmentGroupOnly ? 'checked' : ''}>
-                    <span class="checkmark"></span>
-                    Group Chats Only
-                </label>
-                <small>Only apply order adjustment during group chats (ignored in single character chats)</small>
-            </div>
-        </div>
-    </div>`;
-    }
-}
 
 /**
  * Set up priority display synchronization
@@ -1075,7 +771,7 @@ function setupDrawerBehavior(modalEventListeners = []) {
  */
 function generateAdvancedContent() {
     const priorityLevels = [
-        { level: 5, name: 'Highest', description: 'Processes first, gets budget priority' },
+        { level: 5, name: 'Highest', description: 'Processes first' },
         { level: 4, name: 'High', description: 'High priority processing' },
         { level: 3, name: 'Normal', description: 'Standard priority (SillyTavern default)' },
         { level: 2, name: 'Low', description: 'Lower priority processing' },
@@ -1086,8 +782,6 @@ function generateAdvancedContent() {
         <div class="priority-section world_entry_form_control MarginBot10" data-priority="${priority.level}">
             <h4>${priority.level} - ${priority.name} Priority</h4>
             <small>${priority.description}</small>
-
-            ${createBudgetControls('override', {}, priority.level)}
 
             <div class="flex1 range-block MarginTop10">
                 <div class="range-block-title">
@@ -1102,6 +796,28 @@ function generateAdvancedContent() {
                             multiple>
                         <option value="">-- Characters will be populated --</option>
                     </select>
+                </div>
+            </div>
+
+            <div class="flex1 MarginTop10">
+                <label class="checkbox_label" for="override-order-adjustment-enabled-${priority.level}">
+                    <input type="checkbox" id="override-order-adjustment-enabled-${priority.level}"
+                           class="override-order-adjustment-enabled" data-priority="${priority.level}">
+                    <span class="checkmark"></span>
+                    Enable Order Adjustment
+                </label>
+                <small>Fine-tune processing order within this priority level</small>
+
+                <div class="override-order-adjustment-container" data-priority="${priority.level}"
+                     style="display: none;">
+                    <h5>Order Adjustment</h5>
+                    <div class="flexNoWrap flexGap5 justifyCenter">
+                        <input type="number" class="text_pole textarea_compact override-order-adjustment"
+                               data-priority="${priority.level}" min="-10000" max="10000" step="1"
+                               value="0" placeholder="0" style="width: 100px;">
+                        <small style="color: #888;">-10k to +10k</small>
+                    </div>
+                    <small>Higher values process first. Example: +250 for slight boost, -500 for lower priority.</small>
                 </div>
             </div>
         </div>
@@ -1128,8 +844,8 @@ function setupAdvancedBehavior(modalEventListeners = [], currentSettings = {}) {
     // Set up drawer behavior
     setupDrawerBehavior(modalEventListeners);
 
-    // Set up budget behavior for all priority levels
-    setupOverrideBudgetBehavior(modalEventListeners);
+    // Set up override behavior for all priority levels
+    setupOverrideBehavior(modalEventListeners);
 
     // Populate character selectors
     populateCharacterSelectors();
@@ -1142,61 +858,13 @@ function setupAdvancedBehavior(modalEventListeners = [], currentSettings = {}) {
 }
 
 /**
- * Set up budget behavior for override modal
+ * Set up override behavior for character-specific priority settings
  * @param {Array} modalEventListeners - Array to track event listeners for cleanup
  */
-function setupOverrideBudgetBehavior(modalEventListeners = []) {
+function setupOverrideBehavior(modalEventListeners = []) {
     const priorityLevels = [1, 2, 3, 4, 5];
 
     for (const priority of priorityLevels) {
-        const budgetModeSelect = document.querySelector(`.override-budget-mode[data-priority="${priority}"]`);
-        const budgetValueContainer = document.querySelector(`.override-budget-value-container[data-priority="${priority}"]`);
-        const budgetUnit = document.querySelector(`.override-budget-unit[data-priority="${priority}"]`);
-        const budgetValueInput = document.querySelector(`.override-budget-value[data-priority="${priority}"]`);
-
-        if (budgetModeSelect && budgetValueContainer && budgetUnit && budgetValueInput) {
-            const changeHandler = () => {
-                const mode = budgetModeSelect.value;
-
-                if (mode === 'default') {
-                    budgetValueContainer.style.display = 'none';
-                } else {
-                    budgetValueContainer.style.display = 'block';
-
-                    // Update unit and validation based on mode
-                    if (mode === 'percentage_context' || mode === 'percentage_budget') {
-                        budgetUnit.textContent = '%';
-                        budgetValueInput.max = '100';
-                    } else if (mode === 'fixed') {
-                        budgetUnit.textContent = 'tokens';
-                        budgetValueInput.max = '10000';
-                    }
-                }
-            };
-
-            // Add input validation handler for clamping percentage values
-            const inputHandler = () => {
-                const mode = budgetModeSelect.value;
-                const value = parseInt(budgetValueInput.value);
-                const isPercentage = mode === 'percentage_context' || mode === 'percentage_budget';
-
-                if (isPercentage && value > 100) {
-                    budgetValueInput.value = '100';
-                }
-            };
-
-            budgetModeSelect.addEventListener('change', changeHandler);
-            budgetValueInput.addEventListener('input', inputHandler);
-
-            modalEventListeners.push(
-                { element: budgetModeSelect, event: 'change', handler: changeHandler },
-                { element: budgetValueInput, event: 'input', handler: inputHandler }
-            );
-
-            // Set initial state
-            changeHandler();
-        }
-
         // Order adjustment behavior
         const orderAdjustmentEnabled = document.querySelector(`.override-order-adjustment-enabled[data-priority="${priority}"]`);
         const orderAdjustmentContainer = document.querySelector(`.override-order-adjustment-container[data-priority="${priority}"]`);
@@ -1296,22 +964,6 @@ function populateCharacterOverrides(characterOverrides = {}) {
             // Add the character to the selection
             $(characterSelect).val([...($(characterSelect).val() || []), character]).trigger('change');
 
-            // Set budget mode and value if they exist
-            if (settings.budgetMode && settings.budgetMode !== 'default') {
-                const budgetModeSelect = document.querySelector(`.override-budget-mode[data-priority="${priority}"]`);
-                const budgetValueInput = document.querySelector(`.override-budget-value[data-priority="${priority}"]`);
-
-                if (budgetModeSelect) {
-                    budgetModeSelect.value = settings.budgetMode;
-                    // Trigger change event to update UI
-                    budgetModeSelect.dispatchEvent(new Event('change'));
-                }
-
-                if (budgetValueInput && settings.budget !== null && settings.budget !== undefined) {
-                    budgetValueInput.value = settings.budget;
-                }
-            }
-
             // Set order adjustment if it exists and is not 0
             if (settings.orderAdjustment !== undefined && settings.orderAdjustment !== 0) {
                 const orderAdjustmentEnabled = document.querySelector(`.override-order-adjustment-enabled[data-priority="${priority}"]`);
@@ -1368,45 +1020,9 @@ function getCharacterOverrides() {
     prioritySections.forEach(section => {
         const priority = section.getAttribute('data-priority');
         const characterSelect = section.querySelector('select[data-priority="' + priority + '"].override-character-filter');
-        const budgetModeSelect = section.querySelector('select[data-priority="' + priority + '"].override-budget-mode');
-        const budgetValueInput = section.querySelector('input[data-priority="' + priority + '"].override-budget-value');
 
         if (characterSelect && characterSelect.value) {
             const selectedChars = $(characterSelect).val() || [];
-            const budgetMode = budgetModeSelect?.value || 'default';
-            const budgetValue = budgetValueInput?.value || '';
-
-            // Validate budget value for this priority section
-            if (selectedChars.length > 0 && budgetMode !== 'default') {
-                const rawValue = budgetValue.trim();
-                if (rawValue === '') {
-                    const priorityName = getPriorityName(parseInt(priority));
-                    toastr.error(`Budget value is required for Priority ${priority} - ${priorityName} when not using default budget mode`, 'Validation Error');
-                    return null;
-                }
-
-                const parsed = parseFloat(rawValue);
-                if (isNaN(parsed) || parsed < 1) {
-                    const priorityName = getPriorityName(parseInt(priority));
-                    toastr.error(`Budget value must be a positive number for Priority ${priority} - ${priorityName}`, 'Validation Error');
-                    return null;
-                }
-
-                // Additional validation based on budget mode
-                if (budgetMode === 'percentage_context' || budgetMode === 'percentage_budget') {
-                    if (parsed < 1 || parsed > 100) {
-                        const priorityName = getPriorityName(parseInt(priority));
-                        toastr.error(`Percentage values must be between 1 and 100 for Priority ${priority} - ${priorityName}`, 'Validation Error');
-                        return null;
-                    }
-                } else if (budgetMode === 'fixed') {
-                    if (parsed > 250000) {
-                        const priorityName = getPriorityName(parseInt(priority));
-                        toastr.error(`Fixed token count cannot exceed 250,000 for Priority ${priority} - ${priorityName}`, 'Validation Error');
-                        return null;
-                    }
-                }
-            }
 
             selectedChars.forEach(chid => {
                 // Track priority assignments for duplicate detection
@@ -1424,8 +1040,6 @@ function getCharacterOverrides() {
 
                 overrides[chid] = {
                     priority: parseInt(priority),
-                    budgetMode: budgetMode,
-                    budget: budgetValue === '' ? null : parseFloat(budgetValue),
                     orderAdjustment: orderAdjustment
                 };
             });
@@ -1469,234 +1083,28 @@ function getPriorityName(priority) {
     return names[priority] || 'Unknown';
 }
 
+
+
+
+
+
 /**
- * Pre-activate entries for budgeted lorebooks
+ * Apply priority ordering to all entries
  * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
- * @returns {Array} Array of pre-activated entries
  */
-async function preActivateBudgetedEntries(eventData, budgetedLorebooks) {
-    if (!budgetedLorebooks || budgetedLorebooks.length === 0) {
-        return [];
-    }
-
-    const preActivatedEntries = [];
-
-    try {
-        for (const lorebookName of budgetedLorebooks) {
-
-            // Collect all entries from this lorebook
-            const lorebookEntries = collectLorebookEntries(eventData, lorebookName);
-
-            if (lorebookEntries.length === 0) {
-                continue;
-            }
-
-            // Get budget for this lorebook
-            const settings = await getLorebookSettings(lorebookName);
-            const budget = await calculateLorebookBudget(settings);
-
-
-            // Apply priority-based ordering to entries from this lorebook
-            const lorebookPriority = await getLorebookPriority(lorebookName);
-            const orderAdjustment = await getLorebookOrderAdjustment(lorebookName);
-            for (const entry of lorebookEntries) {
-                const originalOrder = Math.min(entry.order ?? 100, 9999);
-                entry.order = lorebookPriority * 10000 + orderAdjustment + originalOrder;
-            }
-
-            // Sort entries by priority-modified order (highest first)
-            lorebookEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
-
-            // Apply budget filtering with simplified activation check
-            let usedTokens = 0;
-            const activatedEntries = [];
-
-            for (const entry of lorebookEntries) {
-                // Simplified activation check (includes disable check)
-                if (!wouldActivate(entry)) {
-                    continue;
-                }
-
-                // Check budget (skip budget check if entry has ignoreBudget flag)
-                const rawTokens = getTokenCount(entry.content || '');
-                const entryTokens = (typeof rawTokens === 'number' && !isNaN(rawTokens) && rawTokens >= 0) ? rawTokens : 0;
-                if (entry.ignoreBudget || usedTokens + entryTokens <= budget) {
-                    activatedEntries.push(entry);
-                    // Only count tokens toward budget if entry doesn't ignore budget
-                    if (!entry.ignoreBudget) {
-                        usedTokens += entryTokens;
-                    }
-
-                } else {
-                    break; // Budget exceeded
-                }
-            }
-
-            preActivatedEntries.push(...activatedEntries);
-
-        }
-
-        return preActivatedEntries;
-    } catch (error) {
-        console.error('Error in preActivateBudgetedEntries:', error);
-        return [];
-    }
-}
-
-/**
- * Collect all entries belonging to a specific lorebook from all arrays
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @param {string} lorebookName - Name of the lorebook
- * @returns {Array} Array of entries from the specified lorebook
- */
-function collectLorebookEntries(eventData, lorebookName) {
-    const allEntries = [
-        ...(eventData.globalLore || []),
-        ...(eventData.characterLore || []),
-        ...(eventData.chatLore || []),
-        ...(eventData.personaLore || [])
-    ];
-
-    return allEntries.filter(entry => entry.world === lorebookName);
-}
-
-/**
- * Calculate budget for a specific lorebook
- * @param {Object} settings - Lorebook settings
- * @returns {number} Budget in tokens
- */
-async function calculateLorebookBudget(settings) {
-    try {
-        const context = getContext();
-        const maxContext = (typeof context.maxContext === 'number' && context.maxContext > 0)
-            ? context.maxContext
-            : 8192;
-
-        const wiBudgetPercentage = (typeof world_info_budget === 'number' && world_info_budget > 0)
-            ? world_info_budget
-            : 25;
-        let totalBudget = Math.round(wiBudgetPercentage * maxContext / 100) || 1;
-
-        const budgetCap = (typeof world_info_budget_cap === 'number' && world_info_budget_cap > 0)
-            ? world_info_budget_cap
-            : 0;
-        if (budgetCap > 0 && totalBudget > budgetCap) {
-            totalBudget = budgetCap;
-        }
-
-        // Check for character-specific override in group chat
-        let budgetValue = settings.budget || 0;
-        let budgetMode = settings.budgetMode;
-
-        if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
-            const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
-            if (override && override.budgetMode !== 'default') {
-                budgetMode = override.budgetMode;
-                budgetValue = override.budget || 0;
-            }
-        }
-
-        switch (budgetMode) {
-            case 'percentage_context':
-                if (budgetValue >= 1 && budgetValue <= 100) {
-                    return Math.floor((budgetValue / 100) * maxContext);
-                }
-                break;
-            case 'percentage_budget':
-                if (budgetValue >= 1 && budgetValue <= 100) {
-                    return Math.floor((budgetValue / 100) * totalBudget);
-                }
-                break;
-            case 'fixed':
-                if (budgetValue > 0) {
-                    return budgetValue;
-                }
-                break;
-        }
-
-        // Default fallback
-        return totalBudget;
-    } catch (error) {
-        console.error('Error calculating lorebook budget:', error);
-        return 1000; // Safe fallback
-    }
-}
-
-/**
- * Simplified activation check for pre-activation
- * @param {Object} entry - World info entry
- * @returns {boolean} Whether the entry would likely activate
- */
-function wouldActivate(entry) {
-    // Skip disabled entries
-    if (entry.disable) {
-        return false;
-    }
-
-    // Must have keys to activate
-    if (!Array.isArray(entry.key) || entry.key.length === 0) {
-        return false;
-    }
-
-    // For pre-activation, assume entries with keys would activate
-    // NOTE: This is intentionally simplified. We don't check probability, depth, or actual keyword matching
-    // because this function is only used during pre-activation for budgeted lorebooks.
-    // SillyTavern will perform the full activation checks (including probability/depth) later
-    // when processing the final ordered entries. Our goal here is just priority ordering.
-    return true;
-}
-
-/**
- * Remove original entries from budgeted lorebooks after pre-activation
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
- */
-function removeOriginalBudgetedEntries(eventData, budgetedLorebooks) {
-    if (!budgetedLorebooks || budgetedLorebooks.length === 0) {
-        return;
-    }
-
-    try {
-        const arrays = [eventData.globalLore, eventData.characterLore, eventData.chatLore, eventData.personaLore];
-
-        for (const array of arrays) {
-            if (!Array.isArray(array)) continue;
-
-            // Remove entries from budgeted lorebooks
-            for (let i = array.length - 1; i >= 0; i--) {
-                const entry = array[i];
-                if (entry && budgetedLorebooks.includes(entry.world)) {
-                    array.splice(i, 1);
-                }
-            }
-        }
-
-    } catch (error) {
-        console.error('Error removing original budgeted entries:', error);
-    }
-}
-
-/**
- * Combine all arrays into globalLore with priority-based ordering
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @param {Array} preActivatedEntries - Pre-activated entries from budgeted lorebooks
- * @param {string[]} budgetedLorebooks - Array of lorebook names with custom budgets
- */
-async function combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLorebooks) {
+async function applyPriorityOrdering(eventData) {
     try {
         const { globalLore, characterLore, chatLore, personaLore } = eventData;
 
-        // Apply priority-based ordering to entries from non-budgeted lorebooks
-        // (Pre-activated entries already have priority ordering applied)
-        const nonPreActivatedEntries = [
+        // Apply priority-based ordering to all entries
+        const allEntries = [
             ...(globalLore || []),
             ...(characterLore || []),
             ...(chatLore || []),
             ...(personaLore || [])
         ];
 
-        for (const entry of nonPreActivatedEntries) {
+        for (const entry of allEntries) {
             try {
                 // Entries without world name get default priority
                 const priority = entry.world ? await getLorebookPriority(entry.world) : PRIORITY_LEVELS.DEFAULT;
@@ -1715,15 +1123,6 @@ async function combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLor
             }
         }
 
-        // Now collect all entries (after modification)
-        const allEntries = [
-            ...(globalLore || []),
-            ...(characterLore || []),
-            ...(chatLore || []),
-            ...(personaLore || []),
-            ...(preActivatedEntries || [])
-        ];
-
         // Sort entries by new order (highest first)
         allEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
 
@@ -1737,9 +1136,10 @@ async function combineIntoGlobalLore(eventData, preActivatedEntries, budgetedLor
         globalLore.push(...allEntries);
 
     } catch (error) {
-        console.error('Error combining into globalLore:', error);
+        console.error('Error applying priority ordering:', error);
     }
 }
+
 
 
 

@@ -2,6 +2,11 @@
 
 **← [Back to README](README.md)**
 
+## v1.3.0 (September 29, 2025)
+- **🔧 Simplified Architecture:** Removed budget management system
+  - Removed complex budget allocation modes that caused more problems than they solved
+  - Focus now entirely on priority-based lorebook ordering
+
 ## v1.2.0 (September 26, 2025)
 - **📊 Order Adjustment System:** New fine-tuning feature for lorebook entry processing order
   - Add custom order adjustment values (-10,000 to +10,000) on top of priority levels
