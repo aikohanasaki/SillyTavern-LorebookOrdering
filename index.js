@@ -17,7 +17,8 @@ const DEFAULT_LOREBOOK_SETTINGS = {
     priority: null,     // null = default priority (3)
     orderAdjustment: 0, // Order adjustment value (-10000 to +10000, default 0)
     orderAdjustmentGroupOnly: false, // Only apply order adjustment in group chats
-    characterOverrides: {}  // Character-specific priority overrides for group chats
+    characterOverrides: {},  // Character-specific priority overrides for group chats
+    onlyWhenSpeaking: false  // Only activate in group chats when assigned characters are speaking
 };
 
 // Cleanup tracking
@@ -83,7 +84,11 @@ function setupEventHandlers() {
         EXTENSION_STATE.currentSpeakingCharacter = null;
 
         if (chId !== undefined && chId !== null && characters && characters[chId]) {
-            EXTENSION_STATE.currentSpeakingCharacter = characters[chId].avatar;
+            const character = characters[chId];
+            const characterName = character.avatar.replace(/\.[^/.]+$/, '') ??
+                                 (character.name && character.name.trim()) ??
+                                 `char_${chId}`;
+            EXTENSION_STATE.currentSpeakingCharacter = characterName;
         }
     };
 
@@ -478,6 +483,17 @@ async function openLorebookSettings() {
                 </div>
             </div>
 
+            <!-- Only When Speaking Toggle -->
+            <div class="world_entry_form_control MarginTop10">
+                <label class="checkbox_label" for="lorebook-only-when-speaking">
+                    <input type="checkbox" id="lorebook-only-when-speaking"
+                           ${currentSettings.onlyWhenSpeaking ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    Group chats: Only activate for specific characters (requires character assignments below)
+                </label>
+                <small>When enabled, this lorebook will only activate when characters assigned in Group Chat Overrides are speaking. <strong>If this box is checked but no characters are assigned below, this lorebook WILL NOT ACTIVATE during group chats.</strong></small>
+            </div>
+
             <!-- Group Chat Overrides -->
             <div class="inline-drawer wide100p world_entry_form_control MarginTop10 MarginBot10">
                 <div class="inline-drawer-toggle inline-drawer-header">
@@ -509,13 +525,15 @@ async function openLorebookSettings() {
                 const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
                 const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
                 const orderAdjustmentGroupOnly = document.getElementById('lorebook-order-adjustment-group-only');
+                const onlyWhenSpeaking = document.getElementById('lorebook-only-when-speaking');
 
-                if (prioritySelect && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly) {
+                if (prioritySelect && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly && onlyWhenSpeaking) {
                     return {
                         priority: prioritySelect.value,
                         orderAdjustmentEnabled: orderAdjustmentEnabled.checked,
                         orderAdjustment: orderAdjustmentInput.value,
                         orderAdjustmentGroupOnly: orderAdjustmentGroupOnly.checked,
+                        onlyWhenSpeaking: onlyWhenSpeaking.checked,
                         timestamp: Date.now()
                     };
                 }
@@ -565,7 +583,8 @@ async function openLorebookSettings() {
                     priority: validatedPriority,
                     orderAdjustment: validatedOrderAdjustment,
                     orderAdjustmentGroupOnly: formState.orderAdjustmentGroupOnly || false,
-                    characterOverrides: characterOverrides
+                    characterOverrides: characterOverrides,
+                    onlyWhenSpeaking: formState.onlyWhenSpeaking || false
                 };
 
                 return validatedForm;
@@ -1104,27 +1123,69 @@ async function applyPriorityOrdering(eventData) {
             ...(personaLore || [])
         ];
 
+        // Process entries with filtering and optimization
+        const processedEntries = [];
+
         for (const entry of allEntries) {
             try {
-                // Entries without world name get default priority
-                const priority = entry.world ? await getLorebookPriority(entry.world) : PRIORITY_LEVELS.DEFAULT;
-                const orderAdjustment = entry.world ? await getLorebookOrderAdjustment(entry.world) : 0;
-                const originalOrder = Math.min(entry.order ?? 100, 9999); // Cap to prevent overflow
+                if (!entry.world) {
+                    // Entries without world name get default priority and are always included
+                    const originalOrder = Math.min(entry.order ?? 100, 9999);
+                    entry.order = PRIORITY_LEVELS.DEFAULT * 10000 + originalOrder;
+                    processedEntries.push(entry);
+                    continue;
+                }
 
-                // Formula: priority * 10000 + orderAdjustment + originalOrder
-                // Priority 1 → order 10000+ (processes last)
-                // Priority 5 → order 50000+ (processes first)
-                // Order adjustment: -10000 to +10000 for fine-tuning
+                // Load settings once per lorebook
+                const settings = await getLorebookSettings(entry.world);
+
+                // FILTERING LOGIC: Apply onlyWhenSpeaking rules
+                if (settings.onlyWhenSpeaking) {
+                    // Skip if not in group chat (currentSpeakingCharacter would be null)
+                    if (!EXTENSION_STATE.currentSpeakingCharacter) {
+                        continue; // Skip in single chats
+                    }
+
+                    // Skip if current speaker not in character overrides
+                    const hasCharacterOverride = settings.characterOverrides?.hasOwnProperty(EXTENSION_STATE.currentSpeakingCharacter);
+                    if (!hasCharacterOverride) {
+                        continue; // Skip - character not assigned
+                    }
+                }
+
+                // PRIORITY LOGIC: Get priority/adjustment from cached settings
+                let priority = settings.priority ?? PRIORITY_LEVELS.DEFAULT;
+                let orderAdjustment = settings.orderAdjustment ?? 0;
+
+                // Apply character overrides if in group chat
+                if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
+                    const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
+                    if (override) {
+                        priority = override.priority ?? priority;
+                        orderAdjustment = override.orderAdjustment ?? orderAdjustment;
+                    }
+                }
+
+                // Apply order adjustment group-only setting
+                if (settings.orderAdjustmentGroupOnly && !EXTENSION_STATE.currentSpeakingCharacter) {
+                    orderAdjustment = 0;
+                }
+
+                // Apply order calculation
+                const originalOrder = Math.min(entry.order ?? 100, 9999);
                 entry.order = priority * 10000 + orderAdjustment + originalOrder;
+
+                processedEntries.push(entry);
 
             } catch (error) {
                 console.warn(`Error setting priority for entry from ${entry.world}:`, error);
-                // Keep original order on error
+                // Keep original order on error and include entry
+                processedEntries.push(entry);
             }
         }
 
-        // Sort entries by new order (highest first)
-        allEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+        // Sort processed entries by new order (highest first)
+        processedEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
 
         // Clear all arrays
         globalLore.length = 0;
@@ -1133,7 +1194,7 @@ async function applyPriorityOrdering(eventData) {
         personaLore.length = 0;
 
         // Put everything in globalLore
-        globalLore.push(...allEntries);
+        globalLore.push(...processedEntries);
 
     } catch (error) {
         console.error('Error applying priority ordering:', error);
