@@ -2,10 +2,15 @@
 
 **← [Back to README](README.md)**
 
-## v1.3.1 (September 29, 2025)
+## v1.4.1 (September 29, 2025)
 - **🔧 Fix name/avatar name mismatch:** Fixed priority mismatch in name/avatar name clash resolution
   - if avatar name and char name differed, storage vs detection methods differed 
   - fixed to be the same methods
+
+## v1.4.0 (September 29, 2025)
+- ****🎭 Group Chat Character Overrides:** added feature for group chats
+  - added on/off toggle for group chats that will only activate a lorebook when the assign character is speaking
+  - if box is checked but no characters are assigned, the lorebook does not activate
 
 ## v1.3.0 (September 29, 2025)
 - **🔧 Simplified Architecture:** Removed budget management system

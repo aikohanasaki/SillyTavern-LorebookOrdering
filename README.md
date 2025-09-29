@@ -9,32 +9,17 @@ Settings are accessed via the "Lorebook Ordering" button in the World Info panel
 
 ---
 
-## 🚦 What's New (v1.3.0)
+## 🚦 What's New (v1.4.1)
 
-- **🔧 Simplified Architecture:** Removed complex budget management system that caused more problems than it solved
-- **🎯 Priority Focus:** Extension now focuses entirely on priority-based lorebook ordering
-- **📋 Cleaner Experience:** Reduced complexity for more reliable operation
+## v1.4.1 (September 29, 2025)
+- **🔧 Fix name/avatar name mismatch:** Fixed priority mismatch in name/avatar name clash resolution
+  - if avatar name and char name differed, storage vs detection methods differed 
+  - fixed to be the same methods
 
-### Previous Release (v1.2.0)
-
-- **📊 Order Adjustment System:** Fine-tune lorebook entry processing order with precision
-- **🎯 Custom Adjustment Values:** Add -10,000 to +10,000 adjustment on top of priority levels
-- **🎭 Group Chat Controls:** "Group Chats Only" option for selective order adjustment application
-- **🔧 Character Override Support:** Order adjustment available in both main settings and character overrides
-- **📋 Seamless Integration:** Works perfectly with existing priority system - no breaking changes
-
-### Previous Release (v1.1.0)
-- **🎭 Group Chat Character Overrides:** Different characters can now have different lorebook priorities during their turns in group chats
-- **⚡ Smart State Management:** Automatic cleanup when switching between chats with robust error handling
-- **🔧 Enhanced Integration:** Improved event handling and optimized performance
-- **📋 Backward Compatible:** All existing functionality preserved - no breaking changes
-
-### Earlier Release (v1.0.0)
-- **Initial Release:** Complete lorebook priority management system
-- **Priority Control:** Set custom priority levels (1-5) for each lorebook with Highest, High, Default, Low, and Lowest options
-- **Evenly Strategy Integration:** Works seamlessly with SillyTavern's "evenly" World Info insertion strategy
-- **Real-time Warnings:** Intelligent warnings when incompatible settings are detected during generation
-- **Per-Lorebook Configuration:** Individual settings saved and restored for each lorebook
+## v1.4.0 (September 29, 2025)
+- ****🎭 Group Chat Character Overrides:** Added feature for group chats
+  - added on/off toggle for group chats that will only activate a lorebook when the assign character is speaking
+  - if box is checked but no characters are assigned, the lorebook does not activate
 
 ---
 
