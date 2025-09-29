@@ -85,9 +85,7 @@ function setupEventHandlers() {
 
         if (chId !== undefined && chId !== null && characters && characters[chId]) {
             const character = characters[chId];
-            const characterName = character.avatar.replace(/\.[^/.]+$/, '') ??
-                                 (character.name && character.name.trim()) ??
-                                 `char_${chId}`;
+            const characterName = character.avatar.replace(/\.[^/.]+$/, '') ?? character.name;
             EXTENSION_STATE.currentSpeakingCharacter = characterName;
         }
     };
