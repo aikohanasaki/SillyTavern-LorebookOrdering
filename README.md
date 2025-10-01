@@ -7,6 +7,8 @@ A SillyTavern extension that adds lorebook-level priority management to World In
 ## FAQ
 Settings are accessed via the "Lorebook Ordering" button in the World Info panel (appears next to the search box when lorebooks are available).
 
+![STLO Button](https://github.com/aikohanasaki/imagehost/blob/main/STLO.png)
+
 ---
 
 ## 🚦 What's New (v1.4.1)
@@ -56,6 +58,8 @@ Tested with these settings:
 - Set priority level (1=Lowest to 5=Highest, 3=Default)
 - Configure order adjustment if needed
 - Save and repeat for other lorebooks
+
+![Basic (global) settings](https://github.com/aikohanasaki/imagehost/blob/main/STLO%20basic.png)
 
 ---
 
@@ -109,6 +113,8 @@ Final Processing Order:
 ---
 
 ## 🎭 Group Chat Character Overrides (NEW!)
+
+![Group Chat Specific Settings](https://github.com/aikohanasaki/imagehost/blob/main/STLO%20group.png)
 
 ### **Per-Character Customization**
 In group chats, different characters can now have different lorebook behaviors during their individual turns:
