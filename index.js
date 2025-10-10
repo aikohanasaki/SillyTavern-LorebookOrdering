@@ -275,8 +275,6 @@ async function showStrategyWarning() {
     });
 }
 
-
-
 /**
  * Get settings for a specific lorebook
  * @param {string} worldName - Name of the lorebook
@@ -337,7 +335,6 @@ async function setLorebookSettings(worldName, settings) {
     }
 }
 
-
 /**
  * Get the priority for a lorebook (with default fallback)
  * @param {string} worldName - Name of the lorebook
@@ -356,35 +353,6 @@ async function getLorebookPriority(worldName) {
 
     return settings.priority ?? PRIORITY_LEVELS.DEFAULT;
 }
-
-/**
- * Get the order adjustment for a lorebook (with default fallback)
- * @param {string} worldName - Name of the lorebook
- * @returns {number} Order adjustment (-10000 to +10000, default 0)
- */
-async function getLorebookOrderAdjustment(worldName) {
-    const settings = await getLorebookSettings(worldName);
-
-    // Check for character-specific override in group chat
-    if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
-        const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
-        if (override && typeof override.orderAdjustment === 'number') {
-            return override.orderAdjustment;
-        }
-    }
-
-    // Get main order adjustment setting
-    const orderAdjustment = settings.orderAdjustment ?? 0;
-
-    // If order adjustment is set to group chats only, return 0 for single chats
-    if (settings.orderAdjustmentGroupOnly && !EXTENSION_STATE.currentSpeakingCharacter) {
-        return 0;
-    }
-
-    return orderAdjustment;
-}
-
-
 
 /**
  * Get the currently active/selected lorebook name
@@ -724,7 +692,6 @@ function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
     // Set up Group Chat Overrides behavior
     setupAdvancedBehavior(modalEventListeners, currentSettings);
 }
-
 
 /**
  * Set up priority display synchronization
@@ -1100,11 +1067,6 @@ function getPriorityName(priority) {
     return names[priority] || 'Unknown';
 }
 
-
-
-
-
-
 /**
  * Apply priority ordering to all entries
  * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
@@ -1198,9 +1160,6 @@ async function applyPriorityOrdering(eventData) {
         console.error('Error applying priority ordering:', error);
     }
 }
-
-
-
 
 // Extension initialization
 async function init() {
