@@ -282,23 +282,17 @@ async function showStrategyWarning() {
  */
 async function getLorebookSettings(worldName) {
     try {
-        const worldData = await loadWorldInfo(worldName);
-
-        if (!worldData) {
-            return { ...DEFAULT_LOREBOOK_SETTINGS };
+        // Cache-first: avoid backend fetches that may be gated by permissions/visibility
+        if (worldInfoCache.has(worldName)) {
+            const worldData = worldInfoCache.get(worldName);
+            const extensionData = worldData && typeof worldData === 'object' ? worldData[EXTENSION_NAME] : null;
+            return { ...DEFAULT_LOREBOOK_SETTINGS, ...(extensionData || {}) };
         }
 
-        // Look for our extension data directly on the world data object
-        const extensionData = worldData[EXTENSION_NAME];
-
-        if (!extensionData || typeof extensionData !== 'object') {
-            return { ...DEFAULT_LOREBOOK_SETTINGS };
-        }
-
-        // Merge with defaults to ensure all properties exist
-        return { ...DEFAULT_LOREBOOK_SETTINGS, ...extensionData };
+        // Not in cache: intentionally return defaults without fetching
+        return { ...DEFAULT_LOREBOOK_SETTINGS };
     } catch (error) {
-        console.error(`Error loading settings for ${worldName}:`, error);
+        console.error(`Error reading STLO settings for ${worldName} from cache:`, error);
         return { ...DEFAULT_LOREBOOK_SETTINGS };
     }
 }

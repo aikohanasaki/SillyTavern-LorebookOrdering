@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v1.5.0 (October 11, 2025)
+- **❗Refactor:** Refactored to read from worldInfoCache instead of loadWorldInfo.
+
 ## v1.4.1 (September 29, 2025)
 - **🔧 Fix name/avatar name mismatch:** Fixed priority mismatch in name/avatar name clash resolution
   - if avatar name and char name differed, storage vs detection methods differed 
