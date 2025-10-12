@@ -198,4 +198,4 @@ You'll see a warning popup with options to:
 
 ---
 
-*Vibe Coded with Claude Opus and Sonnet.* 🎯✨
+*Vibe Coded with Cline and various LLMs.* 🎯✨
