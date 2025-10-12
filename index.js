@@ -1167,6 +1167,7 @@ async function init() {
 
             setupEventHandlers();
             addLorebookOrderingButton();
+            registerBudgetEnforcementHandlers();
 
         } catch (error) {
             console.error('Failed to load STLO extension:', error);
@@ -1178,3 +1179,181 @@ async function init() {
 }
 
 init();
+
+// ================== STLO: Per-lorebook Budget Markers & Trimming ==================
+
+// Lazy-initialize extension state for budget enforcement
+if (!EXTENSION_STATE.lorebookBudgetCache) EXTENSION_STATE.lorebookBudgetCache = new Map();
+if (!EXTENSION_STATE.dropSet) EXTENSION_STATE.dropSet = null;
+
+/**
+ * Get numeric budget for a lorebook (0 or undefined -> no limit).
+ * Cache-only: reads from worldInfoCache; on miss returns 0.
+ */
+async function getLorebookBudgetFromCache(worldName) {
+    try {
+        if (!worldName) return 0;
+        if (EXTENSION_STATE.lorebookBudgetCache.has(worldName)) {
+            return EXTENSION_STATE.lorebookBudgetCache.get(worldName);
+        }
+
+        // Cache-only read. If not present in cache, treat as no budget.
+        if (!worldInfoCache.has(worldName)) {
+            return 0;
+        }
+
+        const data = worldInfoCache.get(worldName);
+        const ext = data?.[EXTENSION_NAME];
+        // budget is optional; non-numeric or <=0 -> treated as no limit
+        const budget = Number(ext?.budget ?? 0) || 0;
+        EXTENSION_STATE.lorebookBudgetCache.set(worldName, budget);
+        return budget;
+    } catch (e) {
+        console.warn('[STLO] getLorebookBudgetFromCache failed for', worldName, e);
+        return 0;
+    }
+}
+
+/**
+ * Assign or get a compact numeric group id (gid) for a lorebook name for current generation.
+ */
+
+/**
+ * Check if a string already contains an LO tag.
+ */
+
+/**
+ * Decorator-safe, idempotent wrapper: inserts LO markers AFTER any leading @@ lines.
+ * Only applied to budgeted lorebooks.
+ */
+
+/**
+ * WORLDINFO_ENTRIES_LOADED handler to add markers to entries from budgeted lorebooks.
+ * Runs in addition to existing STLO ordering logic.
+ */
+
+/**
+ * WORLD_INFO_ACTIVATED handler: compute per-lorebook drop set (entry count budget).
+ * Activated entries are structured; sorting by order desc mirrors final assembly.
+ */
+async function onWorldInfoActivated(activatedEntries) {
+    try {
+        const byWorld = new Map();
+        for (const e of (activatedEntries || [])) {
+            if (!e?.world) continue;
+            if (!byWorld.has(e.world)) byWorld.set(e.world, []);
+            byWorld.get(e.world).push(e);
+        }
+
+        const dropSet = new Set();
+        const dropEntries = [];
+
+        for (const [world, list] of byWorld.entries()) {
+            const budget = await getLorebookBudgetFromCache(world);
+            if (!(budget > 0)) continue;
+
+            // Sort by new order (desc), fallback to 100 if undefined
+            list.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+
+            const drop = list.slice(budget);
+
+            for (const e of drop) {
+                dropSet.add(`${world}:${e.uid}`);
+                if (typeof e.content === 'string' && e.content.length) {
+                    dropEntries.push({ world: e.world, uid: e.uid, content: e.content });
+                }
+            }
+        }
+
+        EXTENSION_STATE.dropSet = dropSet;
+        EXTENSION_STATE.dropEntries = dropEntries;
+    } catch (e) {
+        console.warn('[STLO] onWorldInfoActivated error:', e);
+        EXTENSION_STATE.dropSet = null;
+        EXTENSION_STATE.dropEntries = [];
+    }
+}
+
+/**
+ * CHAT_COMPLETION_PROMPT_READY handler: remove over-budget entry contents (no markers; Option A).
+ */
+function onChatCompletionPromptReady(eventData) {
+    try {
+        const { chat, dryRun } = eventData || {};
+        if (dryRun) return;
+
+        const dropEntries = EXTENSION_STATE.dropEntries;
+        if (!Array.isArray(dropEntries) || dropEntries.length === 0 || !Array.isArray(chat)) return;
+
+        for (const msg of chat) {
+            if (!msg || msg.role !== 'system' || typeof msg.content !== 'string') continue;
+
+            let content = msg.content;
+            let changed = false;
+
+            // Option A (no markers): remove the first unmatched occurrence of each over-budget entry.content
+            for (const e of dropEntries) {
+                const slice = e?.content;
+                if (typeof slice !== 'string' || !slice.length) continue;
+
+                const idx = content.indexOf(slice);
+                if (idx !== -1) {
+                    content = content.slice(0, idx) + content.slice(idx + slice.length);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                // Tidy excessive blank lines after removals; do not trim leading whitespace
+                msg.content = content
+                    .replace(/\n{3,}/g, '\n\n')
+                    .replace(/[ \t]+\n/g, '\n');
+            }
+        }
+    } catch (e) {
+        console.warn('[STLO] onChatCompletionPromptReady error:', e);
+    }
+}
+
+/**
+ * Reset per-generation state.
+ */
+function resetBudgetState() {
+    EXTENSION_STATE.lorebookBudgetCache = new Map();
+    EXTENSION_STATE.dropSet = null;
+    EXTENSION_STATE.dropEntries = [];
+}
+
+/**
+ * Register handlers (kept separate from existing setupEventHandlers to minimize intrusion)
+ */
+function registerBudgetEnforcementHandlers() {
+    try {
+
+        // Post-activation decision (drop set)
+        const activatedHandler = onWorldInfoActivated;
+        eventSource.on(event_types.WORLD_INFO_ACTIVATED, activatedHandler);
+        eventListeners.push({ source: eventSource, event: event_types.WORLD_INFO_ACTIVATED, handler: activatedHandler });
+
+        // Post-combine surgery (strip/trim)
+        const promptReadyHandler = onChatCompletionPromptReady;
+        eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, promptReadyHandler);
+        eventListeners.push({ source: eventSource, event: event_types.CHAT_COMPLETION_PROMPT_READY, handler: promptReadyHandler });
+
+        // Reset state when gen ends or chat changes
+        const resetGenHandler = resetBudgetState;
+        eventSource.on(event_types.GENERATION_ENDED, resetGenHandler);
+        eventListeners.push({ source: eventSource, event: event_types.GENERATION_ENDED, handler: resetGenHandler });
+
+        const chatChangedResetHandler = resetBudgetState;
+        eventSource.on(event_types.CHAT_CHANGED, chatChangedResetHandler);
+        eventListeners.push({ source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedResetHandler });
+
+        console.debug('[STLO] Budget enforcement handlers registered');
+    } catch (e) {
+        console.warn('[STLO] Failed to register budget enforcement handlers:', e);
+    }
+}
+
+
+// ================== /STLO: Per-lorebook Budget Markers & Trimming ==================
