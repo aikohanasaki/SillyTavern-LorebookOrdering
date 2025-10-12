@@ -1,6 +1,8 @@
 # 📚 Lorebook Ordering (A SillyTavern Extension)
 
-A SillyTavern extension that adds lorebook-level priority management to World Info. Allows complete control over which lorebooks activate first. Perfect for users with multiple lorebooks who need fine-grained control over World Info behavior. **Now supports character-specific overrides in group chats and precise order adjustment!**
+A SillyTavern extension that adds lorebook-level priority management and budgeting to World Info. Allows complete control over which lorebooks activate first and allows limiting "hungry" lorebooks. Perfect for users with multiple lorebooks who need fine-grained control over World Info behavior. 
+
+🆕 **Now supports character-specific overrides in group chats and precise order adjustment!**
 
 **📋 [Version History & Changelog](CHANGELOG.md)**
 
@@ -11,17 +13,13 @@ Settings are accessed via the "Lorebook Ordering" button in the World Info panel
 
 ---
 
-## 🚦 What's New (v1.4.1)
+## 🚦 What's New (v1.6.0)
 
-## v1.4.1 (September 29, 2025)
-- **🔧 Fix name/avatar name mismatch:** Fixed priority mismatch in name/avatar name clash resolution
-  - if avatar name and char name differed, storage vs detection methods differed 
-  - fixed to be the same methods
+## v1.6.0 (October 11, 2025)
+- **⚙️Reimplement Budgets:** Reimplemented budgeting.
 
-## v1.4.0 (September 29, 2025)
-- ****🎭 Group Chat Character Overrides:** Added feature for group chats
-  - added on/off toggle for group chats that will only activate a lorebook when the assign character is speaking
-  - if box is checked but no characters are assigned, the lorebook does not activate
+## v1.5.0 (October 11, 2025)
+- **❗Refactor:** Refactored to read from worldInfoCache instead of loadWorldInfo.
 
 ---
 
@@ -56,6 +54,7 @@ Tested with these settings:
 ### 3. **Configure Priorities**
 - Select a lorebook from the dropdown
 - Set priority level (1=Lowest to 5=Highest, 3=Default)
+- Set budget (if desired)
 - Configure order adjustment if needed
 - Save and repeat for other lorebooks
 
@@ -78,7 +77,7 @@ Tested with these settings:
 
 ---
 
-## 📊 Order Adjustment System (NEW!)
+## 📊 Order Adjustment System
 
 ### **Fine-Tuning Beyond Priority**
 The Order Adjustment System allows precise control over lorebook entry processing order within the same priority level:
@@ -112,7 +111,7 @@ Final Processing Order:
 
 ---
 
-## 🎭 Group Chat Character Overrides (NEW!)
+## 🎭 Group Chat Character Overrides
 
 ![Group Chat Specific Settings](https://github.com/aikohanasaki/imagehost/blob/main/STLO%20group.png)
 
