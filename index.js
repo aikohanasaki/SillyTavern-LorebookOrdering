@@ -1,7 +1,8 @@
 import { event_types, eventSource } from '../../../events.js';
+import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
 import { characters, stopGeneration } from '../../../../script.js';
-import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_names } from '../../../world-info.js';
+import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
 
 const EXTENSION_NAME = 'stlo';
@@ -9,12 +10,17 @@ const SELECTORS = {
     WORLD_INFO_SEARCH: 'world_info_search',
     LOREBOOK_ORDERING_BUTTON: 'lorebook_ordering_button',
     WORLD_EDITOR_SELECT: '#world_editor_select',
-    LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select'
+    LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select',
+    LOREBOOK_BUDGET_MODE: 'lorebook_budget_mode',
+    LOREBOOK_BUDGET_VALUE: 'lorebook_budget_value',
+    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container'
 };
 
 // Default settings for lorebooks
 const DEFAULT_LOREBOOK_SETTINGS = {
     priority: null,     // null = default priority (3)
+    budget: null,       // value semantics depend on budgetMode
+    budgetMode: 'default', // 'default' | 'percentage_context' | 'percentage_budget' | 'fixed'
     orderAdjustment: 0, // Order adjustment value (-10000 to +10000, default 0)
     orderAdjustmentGroupOnly: false, // Only apply order adjustment in group chats
     characterOverrides: {},  // Character-specific priority overrides for group chats
@@ -39,7 +45,8 @@ const EXTENSION_STATE = {
     pendingAnimationFrame: null,
     isGenerating: false,
     generationsSinceChatChange: 0,
-    currentSpeakingCharacter: null  // Track current speaking character for group chat overrides
+    currentSpeakingCharacter: null,  // Track current speaking character for group chat overrides
+    budgetHandlersRegistered: false
 };
 
 // Utility functions
@@ -47,7 +54,11 @@ const EXTENSION_STATE = {
 function cleanupListeners(listeners, listenerArray) {
     listeners.forEach(({ source, event, handler }) => {
         try {
-            source.off(event, handler);
+            if (source && typeof source.off === 'function') {
+                source.off(event, handler);
+            } else if (source && typeof source.removeListener === 'function') {
+                source.removeListener(event, handler);
+            }
         } catch (error) {
             console.error('Error removing event listener:', error);
         }
@@ -85,7 +96,7 @@ function setupEventHandlers() {
 
         if (chId !== undefined && chId !== null && characters && characters[chId]) {
             const character = characters[chId];
-            const characterName = character.avatar.replace(/\.[^/.]+$/, '') ?? character.name;
+            const characterName = (character?.avatar?.replace(/\.[^/.]+$/, '') || character?.name || null);
             EXTENSION_STATE.currentSpeakingCharacter = characterName;
         }
     };
@@ -123,7 +134,7 @@ function addLorebookOrderingButton() {
         const button = document.createElement('div');
         button.id = SELECTORS.LOREBOOK_ORDERING_BUTTON;
         button.className = 'menu_button fa-solid fa-bars-staggered';
-        button.title = 'Configure STLO Priority';
+        button.title = 'Configure STLO Priority & Budget';
 
         // Add click handler
         button.addEventListener('click', async () => {
@@ -169,13 +180,12 @@ async function handleWorldInfoEntriesLoaded(eventData) {
         // Check if insertion strategy is 'evenly'
         const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
 
-        // Check if any lorebooks have special settings
-        const hasSpecialLorebooks = await checkForSpecialLorebooks(eventData);
+        
 
         // If not evenly strategy, handle warning and return
         if (!isEvenlyStrategy) {
             // Only show warning for user-initiated generation (skip automatic greeting generation)
-            if (hasSpecialLorebooks && EXTENSION_STATE.generationsSinceChatChange > 1) {
+            if (EXTENSION_STATE.generationsSinceChatChange > 1) {
                 const result = await showStrategyWarning();
                 if (result === 'abort') {
                     // User chose to stop generation to fix settings
@@ -251,7 +261,7 @@ async function showStrategyWarning() {
         const warningHtml = `
             <div style="text-align: left; line-height: 1.4;">
                 <h4>⚠️ Caution</h4>
-                <span>You have lorebooks with custom priority settings, but your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
+                <span>Your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
             </div>
         `;
 
@@ -311,8 +321,9 @@ async function setLorebookSettings(worldName, settings) {
             return false;
         }
 
-        // Save extension settings directly on the world data object
-        const finalSettings = { ...DEFAULT_LOREBOOK_SETTINGS, ...settings };
+        // Save extension settings directly on the world data object (preserve existing keys)
+        const existing = (worldData[EXTENSION_NAME] && typeof worldData[EXTENSION_NAME] === 'object') ? worldData[EXTENSION_NAME] : {};
+        const finalSettings = { ...DEFAULT_LOREBOOK_SETTINGS, ...existing, ...settings };
         worldData[EXTENSION_NAME] = finalSettings;
 
         // Save the world data back immediately
@@ -443,6 +454,10 @@ async function openLorebookSettings() {
                 </div>
             </div>
 
+            <div class="world_entry_form_control MarginBot5">
+                ${createBudgetControls('lorebook', currentSettings)}
+            </div>
+
             <!-- Only When Speaking Toggle -->
             <div class="world_entry_form_control MarginTop10">
                 <label class="checkbox_label" for="lorebook-only-when-speaking">
@@ -482,14 +497,18 @@ async function openLorebookSettings() {
             // Function to capture current form state
             const captureFormState = () => {
                 const prioritySelect = document.getElementById(SELECTORS.LOREBOOK_PRIORITY_SELECT);
+                const budgetModeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
+                const budgetValueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
                 const orderAdjustmentEnabled = document.getElementById('lorebook-order-adjustment-enabled');
                 const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
                 const orderAdjustmentGroupOnly = document.getElementById('lorebook-order-adjustment-group-only');
                 const onlyWhenSpeaking = document.getElementById('lorebook-only-when-speaking');
 
-                if (prioritySelect && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly && onlyWhenSpeaking) {
+                if (prioritySelect && budgetModeSelect && budgetValueInput && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly && onlyWhenSpeaking) {
                     return {
                         priority: prioritySelect.value,
+                        budgetMode: budgetModeSelect.value,
+                        budget: budgetValueInput.value,
                         orderAdjustmentEnabled: orderAdjustmentEnabled.checked,
                         orderAdjustment: orderAdjustmentInput.value,
                         orderAdjustmentGroupOnly: orderAdjustmentGroupOnly.checked,
@@ -539,8 +558,32 @@ async function openLorebookSettings() {
                     return null; // Validation failed due to duplicate characters
                 }
 
+                // Validate budget settings
+                const mode = formState.budgetMode || 'default';
+                let validatedBudget = 0;
+
+                if (mode === 'percentage_context' || mode === 'percentage_budget') {
+                    const p = parseInt(formState.budget, 10);
+                    if (isNaN(p) || p < 1 || p > 100) {
+                        toastr.error('Budget percent must be between 1 and 100', 'Validation Error');
+                        return null;
+                    }
+                    validatedBudget = p;
+                } else if (mode === 'fixed') {
+                    const v = parseInt(formState.budget, 10);
+                    if (isNaN(v) || v <= 0) {
+                        toastr.error('Fixed budget must be a positive integer', 'Validation Error');
+                        return null;
+                    }
+                    validatedBudget = v;
+                } else {
+                    validatedBudget = 0; // default mode
+                }
+
                 const validatedForm = {
                     priority: validatedPriority,
+                    budgetMode: mode,
+                    budget: validatedBudget,
                     orderAdjustment: validatedOrderAdjustment,
                     orderAdjustmentGroupOnly: formState.orderAdjustmentGroupOnly || false,
                     characterOverrides: characterOverrides,
@@ -683,6 +726,9 @@ function setupModalBehavior(modalEventListeners = [], currentSettings = {}) {
         orderAdjustmentChangeHandler();
     }
 
+    // Set up Budget controls
+    setupBudgetControls(modalEventListeners, currentSettings);
+
     // Set up Group Chat Overrides behavior
     setupAdvancedBehavior(modalEventListeners, currentSettings);
 }
@@ -741,6 +787,87 @@ function setupDrawerBehavior(modalEventListeners = []) {
             { element: drawerToggle, event: 'click', handler: drawerToggleHandler }
         );
     }
+}
+
+// Render budget controls (mode + value)
+function createBudgetControls(scope, currentSettings = {}) {
+    const mode = currentSettings.budgetMode || 'default';
+    const value = (typeof currentSettings.budget === 'number' ? currentSettings.budget : (currentSettings.budget || 0));
+    return `
+        <h4>Budget</h4>
+        <small>Control how much of the context or World Info budget this lorebook may use.</small>
+        <div class="flexNoWrap flexGap5 justifyCenter">
+            <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
+                <option value="default" ${mode === 'default' ? 'selected' : ''}>Use ST World Info Budget (default)</option>
+                <option value="percentage_budget" ${mode === 'percentage_budget' ? 'selected' : ''}>% of World Info budget</option>
+                <option value="percentage_context" ${mode === 'percentage_context' ? 'selected' : ''}>% of Max Context</option>
+                <option value="fixed" ${mode === 'fixed' ? 'selected' : ''}>Fixed tokens</option>
+            </select>
+            <div id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}" class="flexNoWrap flexGap5 justifyCenter" style="${mode === 'default' ? 'display:none;' : ''}">
+                <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
+                       value="${value || 0}" placeholder="0" style="width: 120px;">
+                <small id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}-hint"></small>
+            </div>
+            <small>Tip: default (0) lets ST decide; Fixed with 1 effectively chokes off this lorebook.</small>
+        </div>
+    `;
+}
+
+// Wire up budget controls (visibility + clamping)
+function setupBudgetControls(modalEventListeners = [], currentSettings = {}) {
+    const modeSelect = document.getElementById(SELECTORS.LOREBOOK_BUDGET_MODE);
+    const valueContainer = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER);
+    const valueInput = document.getElementById(SELECTORS.LOREBOOK_BUDGET_VALUE);
+    const hint = document.getElementById(`${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}-hint`);
+
+    if (!modeSelect || !valueContainer || !valueInput) return;
+
+    const applyMode = () => {
+        const mode = modeSelect.value;
+        if (mode === 'default') {
+            valueContainer.style.display = 'none';
+            valueInput.value = '0';
+            if (hint) hint.textContent = '';
+        } else if (mode === 'percentage_budget' || mode === 'percentage_context') {
+            valueContainer.style.display = 'flex';
+            valueInput.min = '1';
+            valueInput.max = '100';
+            valueInput.step = '1';
+            if (hint) hint.textContent = (mode === 'percentage_budget' ? '% of World Info budget (1–100)' : '% of Max Context (1–100)');
+            if (valueInput.value === '' || Number(valueInput.value) === 0) valueInput.value = '25';
+        } else {
+            // fixed
+            valueContainer.style.display = 'flex';
+            valueInput.min = '1';
+            valueInput.removeAttribute('max');
+            valueInput.step = '1';
+            if (hint) hint.textContent = 'tokens (>= 1)';
+            if (valueInput.value === '' || Number(valueInput.value) === 0) valueInput.value = '500';
+        }
+    };
+
+    const clampInput = () => {
+        const mode = modeSelect.value;
+        let v = parseInt(valueInput.value, 10);
+        if (isNaN(v)) v = 0;
+        if (mode === 'percentage_budget' || mode === 'percentage_context') {
+            if (v < 1) v = 1;
+            if (v > 100) v = 100;
+        } else if (mode === 'fixed') {
+            if (v < 1) v = 1;
+        }
+        valueInput.value = String(v);
+    };
+
+    modeSelect.addEventListener('change', applyMode);
+    valueInput.addEventListener('input', clampInput);
+
+    modalEventListeners.push(
+        { element: modeSelect, event: 'change', handler: applyMode },
+        { element: valueInput, event: 'input', handler: clampInput },
+    );
+
+    applyMode();
 }
 
 /**
@@ -915,7 +1042,7 @@ function populateCharacterSelectors() {
                 // Add character options
                 characters.forEach((character) => {
                     const option = document.createElement('option');
-                    const name = character.avatar.replace(/\.[^/.]+$/, '') ?? character.name;
+                    const name = (character?.avatar?.replace(/\.[^/.]+$/, '') || character?.name || '');
                     option.value = name;
                     option.textContent = name;
                     option.setAttribute('data-type', 'character');
@@ -974,7 +1101,7 @@ function initializeSelect2() {
 
     for (const priority of priorityLevels) {
         const selector = document.querySelector(`.override-character-filter[data-priority="${priority}"]`);
-        if (selector && $(selector).length) {
+        if (selector && typeof $ === 'function' && $.fn?.select2 && $(selector).length) {
             $(selector).select2({
                 width: '100%',
                 placeholder: 'Select characters for this priority level...',
@@ -1030,7 +1157,7 @@ function getCharacterOverrides() {
     if (duplicates.length > 0) {
         const context = getContext();
         const duplicateMessages = duplicates.map(([chid, priorities]) => {
-            const char = context?.characters?.find(c => c.avatar === chid);
+            const char = context?.characters?.find(c => ((c?.avatar?.replace(/\.[^/.]+$/, '')) || c?.name) === chid);
             const charName = char?.name || chid;
             const priorityNames = priorities.map(p => `${p} - ${getPriorityName(p)}`).join(', ');
             return `• ${charName}: assigned to priorities ${priorityNames}`;
@@ -1248,19 +1375,44 @@ async function onWorldInfoActivated(activatedEntries) {
         const dropSet = new Set();
         const dropEntries = [];
 
+        // Compute total WI budget in tokens aligned with base ST config
+        const totalBudget = calculateTotalWIBudget();
+        const tokenCache = new Map();
+
         for (const [world, list] of byWorld.entries()) {
-            const budget = await getLorebookBudgetFromCache(world);
-            if (!(budget > 0)) continue;
+            // Load per-lorebook settings to determine mode/value
+            const settings = await getLorebookSettings(world);
+            const perBudget = await calculateLorebookBudget(settings, totalBudget);
+            if (!(perBudget > 0)) continue;
 
             // Sort by new order (desc), fallback to 100 if undefined
             list.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
 
-            const drop = list.slice(budget);
+            let usedTokens = 0;
 
-            for (const e of drop) {
-                dropSet.add(`${world}:${e.uid}`);
-                if (typeof e.content === 'string' && e.content.length) {
-                    dropEntries.push({ world: e.world, uid: e.uid, content: e.content });
+            for (const e of list) {
+                const ignore = e?.ignoreBudget === true;
+                let tokens;
+                const uid = e?.uid;
+                if (uid && tokenCache.has(uid)) {
+                    tokens = tokenCache.get(uid);
+                } else {
+                    tokens = Number(getTokenCount(e?.content || '')) || 0;
+                    if (uid) tokenCache.set(uid, tokens);
+                }
+
+                if (ignore) {
+                    // keep entry; do not consume budget
+                    continue;
+                }
+
+                if ((usedTokens + tokens) <= perBudget) {
+                    usedTokens += tokens;
+                } else {
+                    dropSet.add(`${world}:${e.uid}`);
+                    if (typeof e.content === 'string' && e.content.length) {
+                        dropEntries.push({ world: e.world, uid: e.uid, content: e.content });
+                    }
                 }
             }
         }
@@ -1291,15 +1443,18 @@ function onChatCompletionPromptReady(eventData) {
             let content = msg.content;
             let changed = false;
 
-            // Option A (no markers): remove the first unmatched occurrence of each over-budget entry.content
+            // Option A (no markers): remove all occurrences of each over-budget entry.content
             for (const e of dropEntries) {
                 const slice = e?.content;
                 if (typeof slice !== 'string' || !slice.length) continue;
 
-                const idx = content.indexOf(slice);
+                let idx = content.indexOf(slice);
                 if (idx !== -1) {
-                    content = content.slice(0, idx) + content.slice(idx + slice.length);
-                    changed = true;
+                    while (idx !== -1) {
+                        content = content.slice(0, idx) + content.slice(idx + slice.length);
+                        changed = true;
+                        idx = content.indexOf(slice);
+                    }
                 }
             }
 
@@ -1324,11 +1479,76 @@ function resetBudgetState() {
     EXTENSION_STATE.dropEntries = [];
 }
 
+// Compute total World Info budget (tokens) from base ST config
+function calculateTotalWIBudget() {
+    try {
+        const ctx = getContext();
+        const maxContext = (typeof ctx?.maxContext === 'number' && ctx.maxContext > 0) ? ctx.maxContext : 8192;
+        const wiPercent = (typeof world_info_budget === 'number' && world_info_budget > 0) ? world_info_budget : 25;
+        let totalBudget = Math.round(maxContext * (wiPercent / 100));
+        const cap = (typeof world_info_budget_cap === 'number' && world_info_budget_cap > 0) ? world_info_budget_cap : 0;
+        if (cap > 0 && totalBudget > cap) totalBudget = cap;
+        if (!Number.isFinite(totalBudget) || totalBudget <= 0) totalBudget = 0;
+        return totalBudget;
+    } catch (e) {
+        console.warn('[STLO] calculateTotalWIBudget error:', e);
+        return 0;
+    }
+}
+
+// Resolve per-lorebook token budget by mode (default | %budget | %context | fixed)
+// Applies character-specific overrides when present
+async function calculateLorebookBudget(settings, totalBudget) {
+    try {
+        const ctx = getContext();
+        const maxContext = (typeof ctx?.maxContext === 'number' && ctx.maxContext > 0) ? ctx.maxContext : 8192;
+
+        let budgetMode = settings?.budgetMode || 'default';
+        let budgetValue = Number(settings?.budget || 0) || 0;
+
+        // Apply character override if present
+        if (EXTENSION_STATE.currentSpeakingCharacter && settings?.characterOverrides) {
+            const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
+            if (override && override.budgetMode && override.budgetMode !== 'default') {
+                budgetMode = override.budgetMode;
+                budgetValue = Number(override.budget || 0) || 0;
+            }
+        }
+
+        switch (budgetMode) {
+            case 'percentage_context':
+                if (budgetValue >= 1 && budgetValue <= 100) {
+                    return Math.floor((budgetValue / 100) * maxContext);
+                }
+                break;
+            case 'percentage_budget':
+                if (budgetValue >= 1 && budgetValue <= 100) {
+                    return Math.floor((budgetValue / 100) * totalBudget);
+                }
+                break;
+            case 'fixed':
+                if (budgetValue > 0) {
+                    return budgetValue;
+                }
+                break;
+            default:
+                break;
+        }
+
+        // default mode → allow up to full WI budget for this lorebook
+        return totalBudget;
+    } catch (e) {
+        console.warn('[STLO] calculateLorebookBudget error:', e);
+        return totalBudget || 0;
+    }
+}
+
 /**
  * Register handlers (kept separate from existing setupEventHandlers to minimize intrusion)
  */
 function registerBudgetEnforcementHandlers() {
     try {
+        if (EXTENSION_STATE.budgetHandlersRegistered) return;
 
         // Post-activation decision (drop set)
         const activatedHandler = onWorldInfoActivated;
@@ -1349,6 +1569,7 @@ function registerBudgetEnforcementHandlers() {
         eventSource.on(event_types.CHAT_CHANGED, chatChangedResetHandler);
         eventListeners.push({ source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedResetHandler });
 
+        EXTENSION_STATE.budgetHandlersRegistered = true;
         console.debug('[STLO] Budget enforcement handlers registered');
     } catch (e) {
         console.warn('[STLO] Failed to register budget enforcement handlers:', e);
