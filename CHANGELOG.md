@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v1.6.0 (October 11, 2025)
+- **⚙️Reimplement Budgets:** Reimplemented budgeting.
+
 ## v1.5.0 (October 11, 2025)
 - **❗Refactor:** Refactored to read from worldInfoCache instead of loadWorldInfo.
 
