@@ -1419,6 +1419,7 @@ async function onWorldInfoActivated(activatedEntries) {
                     dropSet.add(`${world}:${e.uid}`);
                     if (typeof e.content === 'string' && e.content.length) {
                         dropEntries.push({ world: e.world, uid: e.uid, content: e.content });
+                        console.info('[STLO] Trimmed WI entry:', { world: e.world, uid: e.uid, comment: e?.comment ?? null, tokens });
                     }
                 }
             }
