@@ -1,7 +1,7 @@
 import { event_types, eventSource } from '../../../events.js';
 import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
-import { characters, stopGeneration } from '../../../../script.js';
+import { characters, stopGeneration, getMaxContextSize } from '../../../../script.js';
 import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
 
@@ -1365,6 +1365,13 @@ async function getLorebookBudgetFromCache(worldName) {
  */
 async function onWorldInfoActivated(activatedEntries) {
     try {
+        // Respect "evenly" strategy requirement for budget enforcement as well
+        const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
+        if (!isEvenlyStrategy) {
+            EXTENSION_STATE.dropSet = null;
+            EXTENSION_STATE.dropEntries = [];
+            return;
+        }
         const byWorld = new Map();
         for (const e of (activatedEntries || [])) {
             if (!e?.world) continue;
@@ -1482,14 +1489,18 @@ function resetBudgetState() {
 // Compute total World Info budget (tokens) from base ST config
 function calculateTotalWIBudget() {
     try {
-        const ctx = getContext();
-        const maxContext = (typeof ctx?.maxContext === 'number' && ctx.maxContext > 0) ? ctx.maxContext : 8192;
+        const usableContext = Number(typeof getMaxContextSize === 'function' ? getMaxContextSize() : 0);
+        if (!Number.isFinite(usableContext) || usableContext <= 0) {
+            return 0; // no trimming without a valid prevailing context
+        }
+
         const wiPercent = (typeof world_info_budget === 'number' && world_info_budget > 0) ? world_info_budget : 25;
-        let totalBudget = Math.round(maxContext * (wiPercent / 100));
+        let totalBudget = Math.round(usableContext * (wiPercent / 100));
+
         const cap = (typeof world_info_budget_cap === 'number' && world_info_budget_cap > 0) ? world_info_budget_cap : 0;
         if (cap > 0 && totalBudget > cap) totalBudget = cap;
-        if (!Number.isFinite(totalBudget) || totalBudget <= 0) totalBudget = 0;
-        return totalBudget;
+
+        return (Number.isFinite(totalBudget) && totalBudget > 0) ? totalBudget : 0;
     } catch (e) {
         console.warn('[STLO] calculateTotalWIBudget error:', e);
         return 0;
@@ -1500,8 +1511,7 @@ function calculateTotalWIBudget() {
 // Applies character-specific overrides when present
 async function calculateLorebookBudget(settings, totalBudget) {
     try {
-        const ctx = getContext();
-        const maxContext = (typeof ctx?.maxContext === 'number' && ctx.maxContext > 0) ? ctx.maxContext : 8192;
+        const usableContext = Number(typeof getMaxContextSize === 'function' ? getMaxContextSize() : 0);
 
         let budgetMode = settings?.budgetMode || 'default';
         let budgetValue = Number(settings?.budget || 0) || 0;
@@ -1518,7 +1528,7 @@ async function calculateLorebookBudget(settings, totalBudget) {
         switch (budgetMode) {
             case 'percentage_context':
                 if (budgetValue >= 1 && budgetValue <= 100) {
-                    return Math.floor((budgetValue / 100) * maxContext);
+                    return Math.floor((budgetValue / 100) * usableContext);
                 }
                 break;
             case 'percentage_budget':
@@ -1535,11 +1545,11 @@ async function calculateLorebookBudget(settings, totalBudget) {
                 break;
         }
 
-        // default mode → allow up to full WI budget for this lorebook
-        return totalBudget;
+        // default mode → no per-lorebook limit; defer to SillyTavern's global WI handling
+        return 0;
     } catch (e) {
         console.warn('[STLO] calculateLorebookBudget error:', e);
-        return totalBudget || 0;
+        return 0;
     }
 }
 

@@ -146,11 +146,12 @@ In group chats, different characters can now have different lorebook behaviors d
 ### **Per-Lorebook Settings**
 - **Priority:** 1-5 scale with descriptive labels
 - **Order Adjustment:** Fine-tune processing order within priority levels
-- **Budget Controls:** Limit how much of the World Info/context budget each lorebook can use.  
-  - **Default:** Uses SillyTavern’s standard World Info budget allocation.
+- **Budget Controls:** Limit how much of the World Info/context budget each lorebook can use.
+  - **Default:** No per-lorebook limit (no STLO trimming); SillyTavern decides. STLO only orders entries.
   - **% of World Info budget:** Restrict this lorebook to a percentage of the World Info token pool.
-  - **% of Max Context:** Restrict by percentage of the model’s maximum context window.
+  - **% of Max Context:** Restrict by percentage of the model’s maximum usable context window.
   - **Fixed tokens:** Set a specific token limit for this lorebook.
+  - Budgets are computed using the prevailing context size from `getMaxContextSize()`, and enforcement requires the “evenly” strategy.
   - **Tip:** Default (0) lets SillyTavern manage the budget. Fixed with 1 will choke off the lorebook.
 - **Auto-save:** Settings are automatically saved when changed
 
