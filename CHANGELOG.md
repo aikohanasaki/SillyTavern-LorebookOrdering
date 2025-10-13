@@ -2,11 +2,15 @@
 
 **← [Back to README](README.md)**
 
-## v1.6.0 (October 11, 2025)
+## v1.6.2 (October 13, 2025)
+- **🪲Bugfix:** Additional bugfixes and improvements
+- **🔧 Optimization:** Log trimmed entries for better performance
+
+## v1.6.1 (October 11, 2025)
 - **🪲Bugfix:** Fix max context retrieval
 
 ## v1.6.0 (October 11, 2025)
-- **⚙️Reimplement Budgets:** Reimplemented budgeting.
+- **⚙️Reimplement Budgets:** Reimplemented budgeting system
 
 ## v1.5.0 (October 11, 2025)
 - **❗Refactor:** Refactored to read from worldInfoCache instead of loadWorldInfo.
