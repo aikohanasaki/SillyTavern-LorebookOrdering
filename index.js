@@ -329,8 +329,32 @@ async function setLorebookSettings(worldName, settings) {
         // Save the world data back immediately
         await saveWorldInfo(worldName, worldData, true);
 
-        // Clear cache to ensure fresh load next time
-        worldInfoCache.delete(worldName);
+        // Hot-update cache so subsequent reads see fresh settings immediately
+        try {
+            worldInfoCache.set(worldName, worldData);
+        } catch (e) {
+            console.warn('STLO: Failed to update worldInfoCache after save:', e);
+        }
+
+        // Reset budget-related state so new budgets apply on next generation
+        try {
+            if (EXTENSION_STATE?.lorebookBudgetCache instanceof Map) {
+                EXTENSION_STATE.lorebookBudgetCache.delete(worldName);
+            }
+            EXTENSION_STATE.dropSet = null;
+            EXTENSION_STATE.dropEntries = [];
+        } catch (e) {
+            console.warn('STLO: Failed to reset budget state after save:', e);
+        }
+
+        // Notify UI/listeners that World Info has updated so panels can re-render
+        try {
+            if (typeof eventSource?.emit === 'function') {
+                eventSource.emit(event_types.WORLDINFO_UPDATED);
+            }
+        } catch (e) {
+            console.warn('STLO: Failed to emit WORLDINFO_UPDATED after save:', e);
+        }
 
         return true;
     } catch (error) {

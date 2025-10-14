@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v1.6.3 (October 11, 2025)
+- **🪲Bugfix:** Refresh LB after save
+
 ## v1.6.2 (October 13, 2025)
 - **🪲Bugfix:** Additional bugfixes and improvements
 - **🔧 Optimization:** Log trimmed entries for better performance
