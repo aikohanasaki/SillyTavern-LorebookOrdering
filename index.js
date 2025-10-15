@@ -49,6 +49,14 @@ const EXTENSION_STATE = {
     budgetHandlersRegistered: false
 };
 
+// Debugging flag and helper
+const DEBUG_STLO = true;
+function stloDebug(...args) {
+    if (DEBUG_STLO && typeof console !== 'undefined') {
+        console.info('[STLO][DEBUG]', ...args);
+    }
+}
+
 // Utility functions
 
 function cleanupListeners(listeners, listenerArray) {
@@ -180,10 +188,23 @@ async function handleWorldInfoEntriesLoaded(eventData) {
         // Check if insertion strategy is 'evenly'
         const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
 
+        if (DEBUG_STLO) {
+            const counts = {
+                global: (eventData.globalLore || []).length,
+                character: (eventData.characterLore || []).length,
+                chat: (eventData.chatLore || []).length,
+                persona: (eventData.personaLore || []).length
+            };
+            stloDebug('WORLDINFO_ENTRIES_LOADED received entries:', counts, 'strategyEvenly=', isEvenlyStrategy);
+        }
+
         
 
         // If not evenly strategy, handle warning and return
         if (!isEvenlyStrategy) {
+            if (DEBUG_STLO) {
+                stloDebug('Skipping STLO ordering: strategy is not "Sorted Evenly".');
+            }
             // Only show warning for user-initiated generation (skip automatic greeting generation)
             if (EXTENSION_STATE.generationsSinceChatChange > 1) {
                 const result = await showStrategyWarning();
@@ -1230,6 +1251,7 @@ async function applyPriorityOrdering(eventData) {
 
         // Process entries with filtering and optimization
         const processedEntries = [];
+        let skippedOnlyWhenSpeaking = 0;
 
         for (const entry of allEntries) {
             try {
@@ -1248,12 +1270,14 @@ async function applyPriorityOrdering(eventData) {
                 if (settings.onlyWhenSpeaking) {
                     // Skip if not in group chat (currentSpeakingCharacter would be null)
                     if (!EXTENSION_STATE.currentSpeakingCharacter) {
+                        skippedOnlyWhenSpeaking++;
                         continue; // Skip in single chats
                     }
 
                     // Skip if current speaker not in character overrides
                     const hasCharacterOverride = settings.characterOverrides?.hasOwnProperty(EXTENSION_STATE.currentSpeakingCharacter);
                     if (!hasCharacterOverride) {
+                        skippedOnlyWhenSpeaking++;
                         continue; // Skip - character not assigned
                     }
                 }
@@ -1292,6 +1316,13 @@ async function applyPriorityOrdering(eventData) {
         // Sort processed entries by new order (highest first)
         processedEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
 
+        const preCounts = {
+            global: (globalLore || []).length,
+            character: (characterLore || []).length,
+            chat: (chatLore || []).length,
+            persona: (personaLore || []).length
+        };
+
         // Clear all arrays
         globalLore.length = 0;
         characterLore.length = 0;
@@ -1300,6 +1331,10 @@ async function applyPriorityOrdering(eventData) {
 
         // Put everything in globalLore
         globalLore.push(...processedEntries);
+
+        if (DEBUG_STLO) {
+            stloDebug('applyPriorityOrdering summary:', { preCounts, processed: processedEntries.length, skippedOnlyWhenSpeaking });
+        }
 
     } catch (error) {
         console.error('Error applying priority ordering:', error);
@@ -1394,6 +1429,9 @@ async function onWorldInfoActivated(activatedEntries) {
         if (!isEvenlyStrategy) {
             EXTENSION_STATE.dropSet = null;
             EXTENSION_STATE.dropEntries = [];
+            if (DEBUG_STLO) {
+                stloDebug('Budget enforcement skipped: strategy is not "Sorted Evenly".');
+            }
             return;
         }
         const byWorld = new Map();
@@ -1451,6 +1489,12 @@ async function onWorldInfoActivated(activatedEntries) {
 
         EXTENSION_STATE.dropSet = dropSet;
         EXTENSION_STATE.dropEntries = dropEntries;
+
+        if (DEBUG_STLO) {
+            const totals = {};
+            for (const [w, l] of byWorld.entries()) totals[w] = l.length;
+            stloDebug('onWorldInfoActivated summary:', { totalsByWorld: totals, droppedCount: dropEntries.length });
+        }
     } catch (e) {
         console.warn('[STLO] onWorldInfoActivated error:', e);
         EXTENSION_STATE.dropSet = null;
@@ -1610,6 +1654,3 @@ function registerBudgetEnforcementHandlers() {
         console.warn('[STLO] Failed to register budget enforcement handlers:', e);
     }
 }
-
-
-// ================== /STLO: Per-lorebook Budget Markers & Trimming ==================
