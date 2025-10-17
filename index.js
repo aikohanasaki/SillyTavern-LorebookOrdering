@@ -49,7 +49,7 @@ const EXTENSION_STATE = {
 };
 
 // Debugging flag and helper
-const DEBUG_STLO = true;
+const DEBUG_STLO = false;
 function stloDebug(...args) {
     if (DEBUG_STLO && typeof console !== 'undefined') {
         console.info('[STLO][DEBUG]', ...args);
@@ -1403,7 +1403,7 @@ function onChatCompletionPromptReady(eventData) {
             let content = msg.content;
             let changed = false;
 
-            // Option A (no markers): remove all occurrences of each over-budget entry.content
+            // remove all occurrences of each over-budget entry.content
             for (const e of dropEntries) {
                 const slice = e?.content;
                 if (typeof slice !== 'string' || !slice.length) continue;
