@@ -232,48 +232,6 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 }
 
 /**
- * Check if any lorebooks have special priority settings
- * @param {Object} eventData - Contains globalLore, characterLore, chatLore, personaLore arrays
- * @returns {boolean} True if any lorebook has non-default priority
- */
-async function checkForSpecialLorebooks(eventData) {
-    try {
-        // Collect all unique lorebook names from all arrays
-        const allEntries = [
-            ...(eventData.globalLore || []),
-            ...(eventData.characterLore || []),
-            ...(eventData.chatLore || []),
-            ...(eventData.personaLore || [])
-        ];
-
-        const uniqueWorlds = new Set(allEntries.map(entry => entry.world).filter(Boolean));
-
-        if (uniqueWorlds.size === 0) {
-            return false;
-        }
-
-        // Check each lorebook for special priority settings
-        for (const worldName of uniqueWorlds) {
-            try {
-                const settings = await getLorebookSettings(worldName);
-
-                // Check for non-default priority
-                if (settings.priority !== null && settings.priority !== PRIORITY_LEVELS.DEFAULT) {
-                    return true;
-                }
-            } catch (error) {
-                console.error(`Error checking STLO settings for lorebook ${worldName}:`, error);
-            }
-        }
-
-        return false;
-    } catch (error) {
-        console.error('Error in checkForSpecialLorebooks:', error);
-        return false; // Assume no special settings on error
-    }
-}
-
-/**
  * Show warning popup when strategy is not 'evenly' but special lorebooks exist
  * @returns {string} 'continue' or 'disable'
  */
@@ -359,9 +317,6 @@ async function setLorebookSettings(worldName, settings) {
 
         // Reset budget-related state so new budgets apply on next generation
         try {
-            if (EXTENSION_STATE?.lorebookBudgetCache instanceof Map) {
-                EXTENSION_STATE.lorebookBudgetCache.delete(worldName);
-            }
             EXTENSION_STATE.dropSet = null;
             EXTENSION_STATE.dropEntries = [];
         } catch (e) {
@@ -383,25 +338,6 @@ async function setLorebookSettings(worldName, settings) {
         toastr.error(`Error saving settings for ${worldName}`, 'Save Error');
         return false;
     }
-}
-
-/**
- * Get the priority for a lorebook (with default fallback)
- * @param {string} worldName - Name of the lorebook
- * @returns {number} Priority level (1-5, default 3)
- */
-async function getLorebookPriority(worldName) {
-    const settings = await getLorebookSettings(worldName);
-
-    // Check for character-specific override in group chat
-    if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
-        const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
-        if (override && typeof override.priority === 'number') {
-            return override.priority;
-        }
-    }
-
-    return settings.priority ?? PRIORITY_LEVELS.DEFAULT;
 }
 
 /**
@@ -1369,54 +1305,7 @@ init();
 // ================== STLO: Per-lorebook Budget Markers & Trimming ==================
 
 // Lazy-initialize extension state for budget enforcement
-if (!EXTENSION_STATE.lorebookBudgetCache) EXTENSION_STATE.lorebookBudgetCache = new Map();
 if (!EXTENSION_STATE.dropSet) EXTENSION_STATE.dropSet = null;
-
-/**
- * Get numeric budget for a lorebook (0 or undefined -> no limit).
- * Cache-only: reads from worldInfoCache; on miss returns 0.
- */
-async function getLorebookBudgetFromCache(worldName) {
-    try {
-        if (!worldName) return 0;
-        if (EXTENSION_STATE.lorebookBudgetCache.has(worldName)) {
-            return EXTENSION_STATE.lorebookBudgetCache.get(worldName);
-        }
-
-        // Cache-only read. If not present in cache, treat as no budget.
-        if (!worldInfoCache.has(worldName)) {
-            return 0;
-        }
-
-        const data = worldInfoCache.get(worldName);
-        const ext = data?.[EXTENSION_NAME];
-        // budget is optional; non-numeric or <=0 -> treated as no limit
-        const budget = Number(ext?.budget ?? 0) || 0;
-        EXTENSION_STATE.lorebookBudgetCache.set(worldName, budget);
-        return budget;
-    } catch (e) {
-        console.warn('[STLO] getLorebookBudgetFromCache failed for', worldName, e);
-        return 0;
-    }
-}
-
-/**
- * Assign or get a compact numeric group id (gid) for a lorebook name for current generation.
- */
-
-/**
- * Check if a string already contains an LO tag.
- */
-
-/**
- * Decorator-safe, idempotent wrapper: inserts LO markers AFTER any leading @@ lines.
- * Only applied to budgeted lorebooks.
- */
-
-/**
- * WORLDINFO_ENTRIES_LOADED handler to add markers to entries from budgeted lorebooks.
- * Runs in addition to existing STLO ordering logic.
- */
 
 /**
  * WORLD_INFO_ACTIVATED handler: compute per-lorebook drop set (entry count budget).
@@ -1550,7 +1439,6 @@ function onChatCompletionPromptReady(eventData) {
  * Reset per-generation state.
  */
 function resetBudgetState() {
-    EXTENSION_STATE.lorebookBudgetCache = new Map();
     EXTENSION_STATE.dropSet = null;
     EXTENSION_STATE.dropEntries = [];
 }
