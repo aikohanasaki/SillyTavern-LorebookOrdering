@@ -43,7 +43,6 @@ const PRIORITY_LEVELS = {
 const EXTENSION_STATE = {
     modalOpen: false,
     pendingAnimationFrame: null,
-    isGenerating: false,
     generationsSinceChatChange: 0,
     currentSpeakingCharacter: null,  // Track current speaking character for group chat overrides
     budgetHandlersRegistered: false
@@ -85,13 +84,11 @@ function setupEventHandlers() {
     const handler = (data) => handleWorldInfoEntriesLoaded(data);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
 
-    // Track generation state to only show warnings during actual generation
     const generationStartHandler = () => {
-        EXTENSION_STATE.isGenerating = true;
         EXTENSION_STATE.generationsSinceChatChange++;
     };
-    const generationStopHandler = () => { EXTENSION_STATE.isGenerating = false; };
-    const generationEndHandler = () => { EXTENSION_STATE.isGenerating = false; };
+    const generationStopHandler = () => { };
+    const generationEndHandler = () => { };
     const chatChangedHandler = () => {
         EXTENSION_STATE.generationsSinceChatChange = 0;
         EXTENSION_STATE.currentSpeakingCharacter = null;  // Clear character override state on chat change
@@ -197,8 +194,6 @@ async function handleWorldInfoEntriesLoaded(eventData) {
             };
             stloDebug('WORLDINFO_ENTRIES_LOADED received entries:', counts, 'strategyEvenly=', isEvenlyStrategy);
         }
-
-        
 
         // If not evenly strategy, handle warning and return
         if (!isEvenlyStrategy) {
