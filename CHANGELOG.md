@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v1.6.4 (October 16, 2025)
+- **🪲Bugfix:** Removed dead code
+
 ## v1.6.3 (October 11, 2025)
 - **🪲Bugfix:** Refresh LB after save
 
