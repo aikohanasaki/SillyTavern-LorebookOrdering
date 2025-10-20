@@ -2,6 +2,16 @@
 
 **← [Back to README](README.md)**
 
+## v1.7.0 (October 20, 2025)
+- **🌐 Internationalization:** Added localisation. 
+  - Simplified/Traditional Chinese
+  - Japanese
+  - Korean
+  - Russian
+  - Malay
+  - Indonesian
+  - Spanish
+
 ## v1.6.4 (October 16, 2025)
 - **🪲Bugfix:** Removed dead code
 
