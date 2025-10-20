@@ -4,6 +4,7 @@ import { getContext } from '../../../extensions.js';
 import { characters, stopGeneration, getMaxContextSize } from '../../../../script.js';
 import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
+import { addLocaleData, getCurrentLocale, translate, t, applyLocale } from '../../../i18n.js';
 
 const EXTENSION_NAME = 'stlo';
 const SELECTORS = {
@@ -56,7 +57,69 @@ function stloDebug(...args) {
     }
 }
 
-// Utility functions
+ // Utility functions
+
+// STLO i18n adapter: load extension locale and key-based interpolation
+const EXT_BASE_URL = new URL('.', import.meta.url);
+async function loadStloLocale() {
+    try {
+        const current = String(getCurrentLocale() || 'en').toLowerCase();
+        const base = current.split('-')[0];
+        const candidates = [current, base, 'en'];
+        console.info('[STLO i18n] current locale:', current, 'candidates:', candidates.join(', '));
+        for (const code of candidates) {
+            try {
+                const url = new URL(`./locales/${code}.json`, EXT_BASE_URL);
+                console.info('[STLO i18n] trying locale file:', url.href);
+                const res = await fetch(url);
+                if (res && res.ok) {
+                    const data = await res.json();
+                    addLocaleData(current, data);
+                    console.info('[STLO i18n] loaded locale data for:', code, 'merged into:', current);
+                    // Quick sanity check: this should print the localized value (e.g., Chinese) when locale is zh-cn
+                    const sample = translate('Configure STLO Priority & Budget', 'stlo.button.configure');
+                    console.info('[STLO i18n] sample stlo.button.configure =', sample);
+                    break; // first available wins
+                } else {
+                    console.info('[STLO i18n] not found or not ok for:', code, 'status:', res?.status);
+                }
+            } catch (e) {
+                console.info('[STLO i18n] error while trying code:', code, e);
+                // ignore and try next
+            }
+        }
+        // Re-apply locale so existing DOM picks up newly injected keys
+        try { 
+            applyLocale(); 
+            console.info('[STLO i18n] applyLocale() completed');
+            // Expose a debug helper in DevTools: run window.stloI18nStatus()
+            try {
+                // eslint-disable-next-line no-undef
+                window.stloI18nStatus = () => {
+                    const cur = String(getCurrentLocale() || 'en').toLowerCase();
+                    const sample = translate('Configure STLO Priority & Budget', 'stlo.button.configure');
+                    console.table({ currentLocale: cur, 'stlo.button.configure': sample });
+                    return { currentLocale: cur, sample };
+                };
+            } catch (e2) {
+                console.info('[STLO i18n] window not available to expose stloI18nStatus:', e2);
+            }
+        } catch (e) {
+            console.warn('[STLO i18n] applyLocale() threw:', e);
+        }
+    } catch (e) {
+        console.warn('[STLO] i18n load failed:', e);
+    }
+}
+
+/**
+ * Interpolate a translation string by stable key using ${index} placeholders.
+ * Example: tKey('stlo.settings.saved', 'STLO settings saved for ${0}', currentLorebook)
+ */
+function tKey(key, fallback, ...values) {
+    const template = translate(fallback, key);
+    return template.replace(/\$\{(\d+)\}/g, (_, i) => String(values[i] ?? ''));
+}
 
 function cleanupListeners(listeners, listenerArray) {
     listeners.forEach(({ source, event, handler }) => {
@@ -139,7 +202,9 @@ function addLorebookOrderingButton() {
         const button = document.createElement('div');
         button.id = SELECTORS.LOREBOOK_ORDERING_BUTTON;
         button.className = 'menu_button fa-solid fa-bars-staggered';
-        button.title = 'Configure STLO Priority & Budget';
+        button.setAttribute('data-i18n', '[title]stlo.button.configure; [aria-label]stlo.button.configure');
+        button.title = translate('Configure STLO Priority & Budget', 'stlo.button.configure');
+        button.setAttribute('aria-label', translate('Configure STLO Priority & Budget', 'stlo.button.configure'));
 
         // Add click handler
         button.addEventListener('click', async () => {
@@ -205,12 +270,12 @@ async function handleWorldInfoEntriesLoaded(eventData) {
                 const result = await showStrategyWarning();
                 if (result === 'abort') {
                     // User chose to stop generation to fix settings
-                    toastr.warning('Generation stopped. Please switch to "evenly" strategy for STLO to work.', 'STLO', { timeOut: 5000 });
+                    toastr.warning(translate('Generation stopped. Please switch to "evenly" strategy for STLO to work.', 'stlo.warn.stopped'), 'STLO', { timeOut: 5000 });
                     return; // Generation already stopped in the popup callback
                 }
                 if (result === 'disable') {
                     // User chose to continue without STLO
-                    toastr.info('STLO disabled - not using "evenly" strategy', 'STLO', { timeOut: 3000 });
+                    toastr.info(translate('STLO disabled - not using "evenly" strategy', 'stlo.warn.disabled'), 'STLO', { timeOut: 3000 });
                     return; // Silently disable STLO without error
                 }
             }
@@ -221,7 +286,7 @@ async function handleWorldInfoEntriesLoaded(eventData) {
         await applyPriorityOrdering(eventData);
 
     } catch (error) {
-        toastr.warning('STLO encountered an error. Disabling STLO, returning to core ST function', 'Extension Warning');
+        toastr.warning(translate('STLO encountered an error. Disabling STLO, returning to core ST function', 'stlo.error.encountered'), 'Extension Warning');
         return;
     }
 }
@@ -234,14 +299,14 @@ async function showStrategyWarning() {
     return new Promise((resolve) => {
         const warningHtml = `
             <div style="text-align: left; line-height: 1.4;">
-                <h4>⚠️ Caution</h4>
-                <span>Your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
+                <h4 data-i18n="stlo.warn.title">⚠️ Caution</h4>
+                <span data-i18n="stlo.warn.body">Your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
             </div>
         `;
 
         const popup = new Popup(warningHtml, POPUP_TYPE.CONFIRM, '', {
-            okButton: 'Disable STLO',
-            cancelButton: 'Stop Generation',
+            okButton: translate('Disable STLO', 'stlo.warn.disable'),
+            cancelButton: translate('Stop Generation', 'stlo.warn.stop'),
             wide: true,
             large: false,
             onClosing: (popup) => {
@@ -291,7 +356,7 @@ async function setLorebookSettings(worldName, settings) {
         const worldData = await loadWorldInfo(worldName);
 
         if (!worldData) {
-            toastr.error(`Could not load settings for lorebook: ${worldName}`, 'Settings Error');
+            toastr.error(tKey('stlo.settings.loadError.body', 'Could not load settings for lorebook: ${0}', worldName), translate('Settings Error', 'stlo.settings.loadError.title'));
             return false;
         }
 
@@ -330,7 +395,7 @@ async function setLorebookSettings(worldName, settings) {
         return true;
     } catch (error) {
         console.error(`Error saving settings for ${worldName}:`, error);
-        toastr.error(`Error saving settings for ${worldName}`, 'Save Error');
+        toastr.error(tKey('stlo.settings.saveError.body', 'Error saving settings for ${0}', worldName), translate('Save Error', 'stlo.settings.saveError.title'));
         return false;
     }
 }
@@ -376,7 +441,11 @@ async function openLorebookSettings() {
         const currentLorebook = getCurrentLorebookName();
         if (!currentLorebook) {
             EXTENSION_STATE.modalOpen = false;
-            toastr.info('Create or select a World Info file first.', 'World Info is not set', { timeOut: 10000, preventDuplicates: true });
+            toastr.info(
+                translate('Create or select a World Info file first.', 'stlo.info.noLorebook'),
+                translate('World Info is not set', 'stlo.info.noLorebookTitle'),
+                { timeOut: 10000, preventDuplicates: true }
+            );
             return;
         }
 
@@ -386,16 +455,16 @@ async function openLorebookSettings() {
         // Create modal HTML - single vertical scrolling content
         const modalHtml = `
             <div class="world_entry_form_control MarginBot5 alignCenteritems">
-                <h3 class="marginBot10">📚 ST Lorebook Ordering</h3>
-                <h4>Lorebook Priority</h4>
-                <small>Higher numbers (4-5) process first. Lower numbers (1-2) process last.</small>
+                <h3 class="marginBot10" data-i18n="stlo.modal.title">📚 ST Lorebook Ordering</h3>
+                <h4 data-i18n="stlo.modal.priority.title">Lorebook Priority</h4>
+                <small data-i18n="stlo.modal.priority.help">Higher numbers (4-5) process first. Lower numbers (1-2) process last.</small>
 
                 <select id="${SELECTORS.LOREBOOK_PRIORITY_SELECT}" class="text_pole textarea_compact">
-                    <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''}>5 - Highest Priority (Processes First)</option>
-                    <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''}>4 - High Priority</option>
-                    <option value="null" ${currentSettings.priority === null ? 'selected' : ''}>3 - Normal (SillyTavern Default)</option>
-                    <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''}>2 - Low Priority</option>
-                    <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''}>1 - Lowest Priority (Processes Last)</option>
+                    <option value="5" ${currentSettings.priority === 5 ? 'selected' : ''} data-i18n="stlo.modal.priority.option.5">5 - Highest Priority (Processes First)</option>
+                    <option value="4" ${currentSettings.priority === 4 ? 'selected' : ''} data-i18n="stlo.modal.priority.option.4">4 - High Priority</option>
+                    <option value="null" ${currentSettings.priority === null ? 'selected' : ''} data-i18n="stlo.modal.priority.option.3">3 - Normal (SillyTavern Default)</option>
+                    <option value="2" ${currentSettings.priority === 2 ? 'selected' : ''} data-i18n="stlo.modal.priority.option.2">2 - Low Priority</option>
+                    <option value="1" ${currentSettings.priority === 1 ? 'selected' : ''} data-i18n="stlo.modal.priority.option.1">1 - Lowest Priority (Processes Last)</option>
                 </select>
             </div>
 
@@ -404,18 +473,18 @@ async function openLorebookSettings() {
                     <input type="checkbox" id="lorebook-order-adjustment-enabled"
                            ${currentSettings.orderAdjustment !== 0 ? 'checked' : ''}>
                     <span class="checkmark"></span>
-                    Enable Order Adjustment
+                    <span data-i18n="stlo.modal.order.enableLabel">Enable Order Adjustment</span>
                 </label>
-                <small>Fine-tune processing order within this lorebook's priority level</small>
+                <small data-i18n="stlo.modal.order.help">Fine-tune processing order within this lorebook's priority level</small>
 
                 <div class="world_entry_form_control MarginTop10${currentSettings.orderAdjustment !== 0 ? '' : ' hidden'}" id="lorebook-order-adjustment-container">
-                    <h4>Order Adjustment</h4>
-                    <small>Higher values process first. Examples: +250 for slight boost, -500 for lower priority.</small>
+                    <h4 data-i18n="stlo.modal.order.title">Order Adjustment</h4>
+                    <small data-i18n="stlo.modal.order.explain">Higher values process first. Examples: +250 for slight boost, -500 for lower priority.</small>
                     <div class="flexNoWrap flexGap5 justifyCenter">
                         <input type="number" id="lorebook-order-adjustment" class="text_pole textarea_compact"
                                value="${currentSettings.orderAdjustment}" min="-10000" max="10000" step="1"
                                placeholder="0" style="width: 100px;">
-                        <small style="color: #888;">-10k to +10k</small>
+                        <small style="color: #888;" data-i18n="stlo.modal.order.range">-10k to +10k</small>
                     </div>
 
                     <div class="MarginTop10">
@@ -423,9 +492,9 @@ async function openLorebookSettings() {
                             <input type="checkbox" id="lorebook-order-adjustment-group-only"
                                    ${currentSettings.orderAdjustmentGroupOnly ? 'checked' : ''}>
                             <span class="checkmark"></span>
-                            Group Chats Only
+                            <span data-i18n="stlo.modal.order.groupOnly.label">Group Chats Only</span>
                         </label>
-                        <small>Only apply order adjustment during group chats (ignored in single character chats)</small>
+                        <small data-i18n="stlo.modal.order.groupOnly.help">Only apply order adjustment during group chats (ignored in single character chats)</small>
                     </div>
                 </div>
             </div>
@@ -440,24 +509,27 @@ async function openLorebookSettings() {
                     <input type="checkbox" id="lorebook-only-when-speaking"
                            ${currentSettings.onlyWhenSpeaking ? 'checked' : ''}>
                     <span class="checkmark"></span>
-                    Group chats: Only activate for specific characters (requires character assignments below)
+                    <span data-i18n="stlo.modal.onlyWhenSpeaking.label">Group chats: Only activate for specific characters (requires character assignments below)</span>
                 </label>
-                <small>When enabled, this lorebook will only activate when characters assigned in Group Chat Overrides are speaking. <strong>If this box is checked but no characters are assigned below, this lorebook WILL NOT ACTIVATE during group chats.</strong></small>
+                <small>
+                    <span data-i18n="stlo.modal.onlyWhenSpeaking.help.1">When enabled, this lorebook will only activate when characters assigned in Group Chat Overrides are speaking.</span>
+                    <strong data-i18n="stlo.modal.onlyWhenSpeaking.help.2">If this box is checked but no characters are assigned below, this lorebook WILL NOT ACTIVATE during group chats.</strong>
+                </small>
             </div>
 
             <!-- Group Chat Overrides -->
             <div class="inline-drawer wide100p world_entry_form_control MarginTop10 MarginBot10">
                 <div class="inline-drawer-toggle inline-drawer-header">
-                    <b>Group Chat Overrides</b>
+                    <b data-i18n="stlo.modal.groupOverrides.title">Group Chat Overrides</b>
                     <div class="fa-solid fa-circle-chevron-down inline-drawer-icon down"></div>
                 </div>
                 <div class="inline-drawer-content">
                     <div class="info-block warning MarginBot10">
-                        <small>If a character is selected in here, the priority settings here will override the lorebook's default setting only during that character's speaking turns in a group chat.</small>
+                        <small data-i18n="stlo.modal.groupOverrides.info">If a character is selected in here, the priority settings here will override the lorebook's default setting only during that character's speaking turns in a group chat.</small>
                     </div>
                     <div class="info-block MarginBot10">
-                        <h4>Default Priority: <span id="default-priority-display">3 - Normal</span></h4>
-                        <small>Characters not specifically listed will use the priority level set above. Single-character chats always use the default.</small>
+                        <h4><span data-i18n="stlo.modal.groupOverrides.defaultPriority.title">Default Priority:</span> <span id="default-priority-display" data-i18n="stlo.modal.groupOverrides.defaultPriority.value">3 - Normal</span></h4>
+                        <small data-i18n="stlo.modal.groupOverrides.defaultPriority.help">Characters not specifically listed will use the priority level set above. Single-character chats always use the default.</small>
                     </div>
                     <div id="advanced-priority-sections">
                         <!-- Priority sections will be inserted here -->
@@ -498,7 +570,7 @@ async function openLorebookSettings() {
             // Function to validate and process form data
             const validateAndProcessForm = (formState) => {
                 if (!formState) {
-                    toastr.error('Settings form not properly loaded. Please try again.');
+                    toastr.error(translate('Settings form not properly loaded. Please try again.', 'stlo.validation.formNotLoaded'));
                     return null;
                 }
 
@@ -509,7 +581,7 @@ async function openLorebookSettings() {
                 if (priorityValue !== '' && priorityValue !== 'null') {
                     const parsedPriority = parseInt(priorityValue);
                     if (isNaN(parsedPriority) || parsedPriority < 1 || parsedPriority > 5) {
-                        toastr.error('Priority value must be between 1 and 5', 'Validation Error');
+                        toastr.error(translate('Priority value must be between 1 and 5', 'stlo.validation.priorityRange'), 'Validation Error');
                         return null;
                     }
                     validatedPriority = parsedPriority;
@@ -522,7 +594,7 @@ async function openLorebookSettings() {
                 if (formState.orderAdjustmentEnabled && formState.orderAdjustment !== '') {
                     const parsed = parseInt(formState.orderAdjustment);
                     if (isNaN(parsed) || parsed < -10000 || parsed > 10000) {
-                        toastr.error('Order adjustment must be between -10000 and 10000', 'Validation Error');
+                        toastr.error(translate('Order adjustment must be between -10000 and 10000', 'stlo.validation.orderAdjustmentRange'), 'Validation Error');
                         return null;
                     }
                     validatedOrderAdjustment = parsed;
@@ -541,14 +613,14 @@ async function openLorebookSettings() {
                 if (mode === 'percentage_context' || mode === 'percentage_budget') {
                     const p = parseInt(formState.budget, 10);
                     if (isNaN(p) || p < 1 || p > 100) {
-                        toastr.error('Budget percent must be between 1 and 100', 'Validation Error');
+                        toastr.error(translate('Budget percent must be between 1 and 100', 'stlo.validation.budgetPercentRange'), 'Validation Error');
                         return null;
                     }
                     validatedBudget = p;
                 } else if (mode === 'fixed') {
                     const v = parseInt(formState.budget, 10);
                     if (isNaN(v) || v <= 0) {
-                        toastr.error('Fixed budget must be a positive integer', 'Validation Error');
+                        toastr.error(translate('Fixed budget must be a positive integer', 'stlo.validation.fixedBudgetPositive'), 'Validation Error');
                         return null;
                     }
                     validatedBudget = v;
@@ -593,8 +665,8 @@ async function openLorebookSettings() {
 
             // Create popup with onClosing callback to capture form data
             const popup = new Popup(modalHtml, POPUP_TYPE.CONFIRM, '', {
-                okButton: 'Save Settings',
-                cancelButton: 'Cancel',
+                okButton: translate('Save Settings', 'stlo.modal.save.ok'),
+                cancelButton: translate('Cancel', 'stlo.modal.cancel'),
                 wide: false,
                 large: false,
                 allowVerticalScrolling: true,
@@ -638,13 +710,13 @@ async function openLorebookSettings() {
                 const saved = await setLorebookSettings(currentLorebook, result);
 
                 if (saved) {
-                    toastr.success(`STLO settings saved for ${currentLorebook}`);
+                    toastr.success(tKey('stlo.settings.saved', 'STLO settings saved for ${0}', currentLorebook));
                 } else {
-                    toastr.error(`Failed to save settings for ${currentLorebook}. Check console for details.`, 'Save Error');
+                    toastr.error(tKey('stlo.settings.saveFailed', 'Failed to save settings for ${0}. Check console for details.', currentLorebook), 'Save Error');
                 }
             } catch (saveError) {
                 console.error('Exception during save operation:', saveError);
-                toastr.error(`Failed to save settings for ${currentLorebook}: ${saveError.message}`, 'Save Error');
+                toastr.error(tKey('stlo.settings.saveException', 'Failed to save settings for ${0}: ${1}', currentLorebook, saveError.message), 'Save Error');
             }
         }
 
@@ -770,21 +842,21 @@ function createBudgetControls(scope, currentSettings = {}) {
     const mode = currentSettings.budgetMode || 'default';
     const value = (typeof currentSettings.budget === 'number' ? currentSettings.budget : (currentSettings.budget || 0));
     return `
-        <h4>Budget</h4>
-        <small>Control how much of the context or World Info budget this lorebook may use.</small>
+        <h4 data-i18n="stlo.budget.title">Budget</h4>
+        <small data-i18n="stlo.budget.help">Control how much of the context or World Info budget this lorebook may use.</small>
         <div class="flexNoWrap flexGap5 justifyCenter">
             <select id="${SELECTORS.LOREBOOK_BUDGET_MODE}" class="text_pole textarea_compact">
-                <option value="default" ${mode === 'default' ? 'selected' : ''}>Use ST World Info Budget (default)</option>
-                <option value="percentage_budget" ${mode === 'percentage_budget' ? 'selected' : ''}>% of World Info budget</option>
-                <option value="percentage_context" ${mode === 'percentage_context' ? 'selected' : ''}>% of Max Context</option>
-                <option value="fixed" ${mode === 'fixed' ? 'selected' : ''}>Fixed tokens</option>
+                <option value="default" ${mode === 'default' ? 'selected' : ''} data-i18n="stlo.budget.mode.default">Use ST World Info Budget (default)</option>
+                <option value="percentage_budget" ${mode === 'percentage_budget' ? 'selected' : ''} data-i18n="stlo.budget.mode.percentBudget">% of World Info budget</option>
+                <option value="percentage_context" ${mode === 'percentage_context' ? 'selected' : ''} data-i18n="stlo.budget.mode.percentContext">% of Max Context</option>
+                <option value="fixed" ${mode === 'fixed' ? 'selected' : ''} data-i18n="stlo.budget.mode.fixed">Fixed tokens</option>
             </select>
             <div id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}" class="flexNoWrap flexGap5 justifyCenter" style="${mode === 'default' ? 'display:none;' : ''}">
                 <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
                        value="${value || 0}" placeholder="0" style="width: 120px;">
                 <small id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}-hint"></small>
             </div>
-            <small>Tip: default (0) lets ST decide; Fixed with 1 effectively chokes off this lorebook.</small>
+            <small data-i18n="stlo.budget.tip">Tip: default (0) lets ST decide; Fixed with 1 effectively chokes off this lorebook.</small>
         </div>
     `;
 }
@@ -809,7 +881,9 @@ function setupBudgetControls(modalEventListeners = [], currentSettings = {}) {
             valueInput.min = '1';
             valueInput.max = '100';
             valueInput.step = '1';
-            if (hint) hint.textContent = (mode === 'percentage_budget' ? '% of World Info budget (1–100)' : '% of Max Context (1–100)');
+            if (hint) hint.textContent = (mode === 'percentage_budget'
+                ? translate('% of World Info budget (1–100)', 'stlo.budget.hint.percentBudget')
+                : translate('% of Max Context (1–100)', 'stlo.budget.hint.percentContext'));
             if (valueInput.value === '' || Number(valueInput.value) === 0) valueInput.value = '25';
         } else {
             // fixed
@@ -817,7 +891,7 @@ function setupBudgetControls(modalEventListeners = [], currentSettings = {}) {
             valueInput.min = '1';
             valueInput.removeAttribute('max');
             valueInput.step = '1';
-            if (hint) hint.textContent = 'tokens (>= 1)';
+            if (hint) hint.textContent = translate('tokens (>= 1)', 'stlo.budget.hint.fixed');
             if (valueInput.value === '' || Number(valueInput.value) === 0) valueInput.value = '500';
         }
     };
@@ -852,22 +926,22 @@ function setupBudgetControls(modalEventListeners = [], currentSettings = {}) {
  */
 function generateAdvancedContent() {
     const priorityLevels = [
-        { level: 5, name: 'Highest', description: 'Processes first' },
-        { level: 4, name: 'High', description: 'High priority processing' },
-        { level: 3, name: 'Normal', description: 'Standard priority (SillyTavern default)' },
-        { level: 2, name: 'Low', description: 'Lower priority processing' },
-        { level: 1, name: 'Lowest', description: 'Processes last' }
+        { level: 5 },
+        { level: 4 },
+        { level: 3 },
+        { level: 2 },
+        { level: 1 }
     ];
 
     const createPrioritySection = (priority) => `
         <div class="priority-section world_entry_form_control MarginBot10" data-priority="${priority.level}">
-            <h4>${priority.level} - ${priority.name} Priority</h4>
-            <small>${priority.description}</small>
+            <h4>${priority.level} - ${getPriorityName(priority.level)} ${translate('Priority', 'stlo.priority.label')}</h4>
+            <small>${getPriorityDescription(priority.level)}</small>
 
             <div class="flex1 range-block MarginTop10">
                 <div class="range-block-title">
                     <div class="flex-container justifySpaceBetween">
-                        <small>Characters</small>
+                        <small data-i18n="stlo.modal.groupOverrides.characters">Characters</small>
                     </div>
                 </div>
                 <div class="range-block-range">
@@ -875,7 +949,7 @@ function generateAdvancedContent() {
                             id="priority-${priority.level}-characters"
                             data-priority="${priority.level}"
                             multiple>
-                        <option value="">-- Characters will be populated --</option>
+                        <option value="" data-i18n="stlo.modal.groupOverrides.placeholderPopulated">-- Characters will be populated --</option>
                     </select>
                 </div>
             </div>
@@ -885,20 +959,20 @@ function generateAdvancedContent() {
                     <input type="checkbox" id="override-order-adjustment-enabled-${priority.level}"
                            class="override-order-adjustment-enabled" data-priority="${priority.level}">
                     <span class="checkmark"></span>
-                    Enable Order Adjustment
+                    <span data-i18n="stlo.modal.order.enableLabel">Enable Order Adjustment</span>
                 </label>
-                <small>Fine-tune processing order within this priority level</small>
+                <small data-i18n="stlo.modal.order.help">Fine-tune processing order within this priority level</small>
 
                 <div class="override-order-adjustment-container" data-priority="${priority.level}"
                      style="display: none;">
-                    <h5>Order Adjustment</h5>
+                    <h5 data-i18n="stlo.modal.order.title">Order Adjustment</h5>
                     <div class="flexNoWrap flexGap5 justifyCenter">
                         <input type="number" class="text_pole textarea_compact override-order-adjustment"
                                data-priority="${priority.level}" min="-10000" max="10000" step="1"
                                value="0" placeholder="0" style="width: 100px;">
-                        <small style="color: #888;">-10k to +10k</small>
+                        <small style="color: #888;" data-i18n="stlo.modal.order.range">-10k to +10k</small>
                     </div>
-                    <small>Higher values process first. Example: +250 for slight boost, -500 for lower priority.</small>
+                    <small data-i18n="stlo.modal.order.explain">Higher values process first. Example: +250 for slight boost, -500 for lower priority.</small>
                 </div>
             </div>
         </div>
@@ -1007,12 +1081,12 @@ function populateCharacterSelectors() {
             if (characters.length === 0) {
                 const defaultOption = document.createElement('option');
                 defaultOption.value = '';
-                defaultOption.textContent = '-- No characters found --';
+                defaultOption.textContent = translate('-- No characters found --', 'stlo.modal.groupOverrides.noChars');
                 selector.appendChild(defaultOption);
             } else {
                 const defaultOption = document.createElement('option');
                 defaultOption.value = '';
-                defaultOption.textContent = '-- Select characters --';
+                defaultOption.textContent = translate('-- Select characters --', 'stlo.modal.groupOverrides.placeholderSelect');
                 selector.appendChild(defaultOption);
 
                 // Add character options
@@ -1080,7 +1154,7 @@ function initializeSelect2() {
         if (selector && typeof $ === 'function' && $.fn?.select2 && $(selector).length) {
             $(selector).select2({
                 width: '100%',
-                placeholder: 'Select characters for this priority level...',
+                placeholder: translate('Select characters for this priority level...', 'stlo.modal.groupOverrides.selectPlaceholder'),
                 allowClear: true,
                 closeOnSelect: false,
                 dropdownParent: $(selector).closest('.popup-content, .popup-body, [role="dialog"]').first()
@@ -1155,13 +1229,29 @@ function getCharacterOverrides() {
  */
 function getPriorityName(priority) {
     const names = {
-        5: 'Highest',
-        4: 'High',
-        3: 'Normal',
-        2: 'Low',
-        1: 'Lowest'
+        5: translate('Highest', 'stlo.priority.name.5'),
+        4: translate('High', 'stlo.priority.name.4'),
+        3: translate('Normal', 'stlo.priority.name.3'),
+        2: translate('Low', 'stlo.priority.name.2'),
+        1: translate('Lowest', 'stlo.priority.name.1')
     };
     return names[priority] || 'Unknown';
+}
+
+/**
+ * Get priority level description for display
+ * @param {number} priority - Priority level (1-5)
+ * @returns {string} Priority description
+ */
+function getPriorityDescription(priority) {
+    const descriptions = {
+        5: translate('Processes first', 'stlo.priority.desc.5'),
+        4: translate('High priority processing', 'stlo.priority.desc.4'),
+        3: translate('Standard priority (SillyTavern default)', 'stlo.priority.desc.3'),
+        2: translate('Lower priority processing', 'stlo.priority.desc.2'),
+        1: translate('Processes last', 'stlo.priority.desc.1')
+    };
+    return descriptions[priority] || 'Unknown';
 }
 
 /**
@@ -1283,6 +1373,7 @@ async function init() {
             }
 
             setupEventHandlers();
+            await loadStloLocale();
             addLorebookOrderingButton();
             registerBudgetEnforcementHandlers();
 

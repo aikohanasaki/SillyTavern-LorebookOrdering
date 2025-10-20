@@ -1,0 +1,88 @@
+{
+  "stlo.button.configure": "Configure STLO Priority & Budget",
+
+  "stlo.warn.title": "⚠️ Caution",
+  "stlo.warn.body": "Your World Info Insertion Strategy is not set to \"Sorted Evenly\". STLO requires the \"Sorted Evenly\" strategy to work properly. What would you like to do?",
+  "stlo.warn.disable": "Disable STLO",
+  "stlo.warn.stop": "Stop Generation",
+  "stlo.warn.stopped": "Generation stopped. Please switch to \"evenly\" strategy for STLO to work.",
+  "stlo.warn.disabled": "STLO disabled - not using \"evenly\" strategy",
+
+  "stlo.error.encountered": "STLO encountered an error. Disabling STLO, returning to core ST function",
+
+  "stlo.info.noLorebook": "Create or select a World Info file first.",
+  "stlo.info.noLorebookTitle": "World Info is not set",
+
+  "stlo.settings.saved": "STLO settings saved for ${0}",
+  "stlo.settings.saveFailed": "Failed to save settings for ${0}. Check console for details.",
+  "stlo.settings.saveException": "Failed to save settings for ${0}: ${1}",
+  "stlo.settings.loadError.title": "Settings Error",
+  "stlo.settings.loadError.body": "Could not load settings for lorebook: ${0}",
+  "stlo.settings.saveError.title": "Save Error",
+  "stlo.settings.saveError.body": "Error saving settings for ${0}",
+
+  "stlo.validation.priorityRange": "Priority value must be between 1 and 5",
+  "stlo.validation.orderAdjustmentRange": "Order adjustment must be between -10000 and 10000",
+  "stlo.validation.budgetPercentRange": "Budget percent must be between 1 and 100",
+  "stlo.validation.fixedBudgetPositive": "Fixed budget must be a positive integer",
+  "stlo.validation.formNotLoaded": "Settings form not properly loaded. Please try again.",
+
+  "stlo.budget.title": "Budget",
+  "stlo.budget.help": "Control how much of the context or World Info budget this lorebook may use.",
+  "stlo.budget.mode.default": "Use ST World Info Budget (default)",
+  "stlo.budget.mode.percentBudget": "% of World Info budget",
+  "stlo.budget.mode.percentContext": "% of Max Context",
+  "stlo.budget.mode.fixed": "Fixed tokens",
+  "stlo.budget.tip": "Tip: default (0) lets ST decide; Fixed with 1 effectively chokes off this lorebook.",
+  "stlo.budget.hint.percentBudget": "% of World Info budget (1–100)",
+  "stlo.budget.hint.percentContext": "% of Max Context (1–100)",
+  "stlo.budget.hint.fixed": "tokens (>= 1)",
+
+  "stlo.modal.title": "📚 ST Lorebook Ordering",
+  "stlo.modal.priority.title": "Lorebook Priority",
+  "stlo.modal.priority.help": "Higher numbers (4-5) process first. Lower numbers (1-2) process last.",
+  "stlo.modal.priority.option.5": "5 - Highest Priority (Processes First)",
+  "stlo.modal.priority.option.4": "4 - High Priority",
+  "stlo.modal.priority.option.3": "3 - Normal (SillyTavern Default)",
+  "stlo.modal.priority.option.2": "2 - Low Priority",
+  "stlo.modal.priority.option.1": "1 - Lowest Priority (Processes Last)",
+
+  "stlo.modal.order.enableLabel": "Enable Order Adjustment",
+  "stlo.modal.order.help": "Fine-tune processing order within this priority level",
+  "stlo.modal.order.title": "Order Adjustment",
+  "stlo.modal.order.explain": "Higher values process first. Example: +250 for slight boost, -500 for lower priority.",
+  "stlo.modal.order.range": "-10k to +10k",
+  "stlo.modal.order.groupOnly.label": "Group Chats Only",
+  "stlo.modal.order.groupOnly.help": "Only apply order adjustment during group chats (ignored in single character chats)",
+
+  "stlo.modal.onlyWhenSpeaking.label": "Group chats: Only activate for specific characters (requires character assignments below)",
+  "stlo.modal.onlyWhenSpeaking.help.1": "When enabled, this lorebook will only activate when characters assigned in Group Chat Overrides are speaking.",
+  "stlo.modal.onlyWhenSpeaking.help.2": "If this box is checked but no characters are assigned below, this lorebook WILL NOT ACTIVATE during group chats.",
+
+  "stlo.modal.groupOverrides.title": "Group Chat Overrides",
+  "stlo.modal.groupOverrides.info": "If a character is selected in here, the priority settings here will override the lorebook's default setting only during that character's speaking turns in a group chat.",
+  "stlo.modal.groupOverrides.defaultPriority.title": "Default Priority:",
+  "stlo.modal.groupOverrides.defaultPriority.value": "3 - Normal",
+  "stlo.modal.groupOverrides.defaultPriority.help": "Characters not specifically listed will use the priority level set above. Single-character chats always use the default.",
+  "stlo.modal.groupOverrides.characters": "Characters",
+  "stlo.modal.groupOverrides.placeholderPopulated": "-- Characters will be populated --",
+  "stlo.modal.groupOverrides.noChars": "-- No characters found --",
+  "stlo.modal.groupOverrides.placeholderSelect": "-- Select characters --",
+  "stlo.modal.groupOverrides.selectPlaceholder": "Select characters for this priority level...",
+
+  "stlo.modal.save.ok": "Save Settings",
+  "stlo.modal.cancel": "Cancel",
+
+  "stlo.priority.name.5": "Highest",
+  "stlo.priority.name.4": "High",
+  "stlo.priority.name.3": "Normal",
+  "stlo.priority.name.2": "Low",
+  "stlo.priority.name.1": "Lowest",
+
+  "stlo.priority.desc.5": "Processes first",
+  "stlo.priority.desc.4": "High priority processing",
+  "stlo.priority.desc.3": "Standard priority (SillyTavern default)",
+  "stlo.priority.desc.2": "Lower priority processing",
+  "stlo.priority.desc.1": "Processes last",
+  "stlo.priority.label": "Priority"
+}
