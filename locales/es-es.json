@@ -1,0 +1,6 @@
+{
+  "stlo.button.configure": "Configurar prioridad y presupuesto de STLO",
+  "stlo.warn.title": "⚠️ Precaución",
+  "stlo.warn.body": "Tu estrategia de inserción de información mundial no está configurada como «Ordenado uniformemente». STLO requiere la estrategia «Ordenado uniformemente» para funcionar correctamente. ¿Qué te gustaría hacer?",
+  "stlo.warn.disable": "Desactivar STLO",
+  "stlo.warn.stop": "Detener generación",
