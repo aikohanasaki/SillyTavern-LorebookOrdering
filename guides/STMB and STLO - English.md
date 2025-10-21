@@ -27,15 +27,43 @@ By default, a chat-bound memory book is given the **highest priority** (Chat-Fir
 
 Use STLO to set custom priorities for all relevant lorebooks:
 
-| Lorebook/Memory | Custom STLO Priority | Why? (The STACK) |
-| :--- | :--- | :--- |
-| **Character Essentials** (Personality, Description) | **Priority 5** (Highest) | **Loads First** to lock in the core character identity and voice before anything else loads. |
-| **STMB Memory Book** (Your Memories) | **Priority 4** (High) | **Loads Second.** High enough to ensure memory is included, but low enough to guarantee essentials load first. |
-| **Persona Lore** (Your Identity) | **Priority 3** (Default/Normal) | **Loads Third.** User identity information is seen after the character's core setup and critical memories. |
-| **General/Random Lore** (Event Memories, World Lore) | **Priority 1-2** (Lowest) | **Loads Last.** Less critical information is only included if space remains. |
+### Understanding Priority vs Position
 
-### C. Set a Budget Cap
-For the STMB Memory Book (and any other dense lorebook), use STLO's **Budget** function to prevent it from consuming all space, even if the priority is high.
+**Position** determines *where* content appears in context (Char up, Char down, AN up/down, @D).  
+**Priority** determines *budget protection* - what survives when context limits are reached.
+
+Higher priority number = more protected from truncation. Priority works **within each position**, not across positions.
+
+---
+
+### Recommended STLO Priority Settings
+
+| Lorebook/Memory Type | Recommended Priority | Justification |
+|:---------------------|:---------------------|:--------------|
+| **Character Essentials** (Personality, Description, Core Traits) | **Priority 5** (Highest) | **Maximum budget protection.** Character card information is the foundation of the bot's identity and behavior. This content must never be truncated or the character breaks entirely. Position is typically set by the botmaker (Char down or @D). |
+| **World Lore** (Setting, Factions, Locations, Rules) | **Priority 4** (High, with budget limits) | **High protection but controllable.** World-building provides essential context for the bot to function properly. Should be budgeted/limited to prevent bloat, but protected enough that core world information isn't lost. Gets cut before character essentials if needed. |
+| **Persona** (Your Identity) | **Priority 3** (Medium) | **Moderate protection.** User identity information is important for personalized responses, but the bot can function if some persona details are trimmed. Less critical than character or world foundation. |
+| **Commands/General Instructions** | **Priority 3** (Medium) | **Moderate protection.** General behavioral instructions and formatting commands. Important for response quality, especially if placed at @D by the botmaker, but not as critical as character integrity. |
+| **Memories** (STMB, Recalled Events) | **Priority 1** (Lowest, with budget limits) | **Minimal protection, aggressive budgeting.** Memories should typically be positioned at Char up (early in context) and serve as enrichment rather than essential information. When many memories trigger, most can be safely truncated without breaking the bot. Budget limits prevent memory bloat from crowding out critical information. |
+
+---
+
+### Key Principles
+
+1. **Protect what's irreplaceable**: Character essentials cannot be reconstructed if lost.
+2. **Budget what can bloat**: World lore and memories can trigger dozens of entries - limit them.
+3. **Position is separate**: A Priority 1 item at @D still appears at the bottom; it just gets cut first if context is full.
+4. **Trust the botmaker**: Well-made bots place their most critical instructions at @D regardless of your priority settings.
+
+---
+
+## C. Set a Budget Cap
+
+- **Character Essentials**: No limit (usually compact anyway)
+- **World Lore**: 15000-25000 tokens max
+- **Persona**: No limit (usually compact)
+- **Commands/General**: No limit (usually compact)
+- **Memories**: 5000-15000 tokens max (aggressive trimming)
 
 1.  Open the STLO config for your STMB lorebook.
 2.  Set a **Budget** cap (e.g., **Fixed tokens** like `5000`, or **Percentage of Context** like `15%`).
