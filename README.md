@@ -2,6 +2,17 @@
 
 A SillyTavern extension that adds lorebook-level priority management and budgeting to World Info. Allows complete control over which lorebooks activate first and allows limiting "hungry" lorebooks. Perfect for users with multiple lorebooks who need fine-grained control over World Info behavior. 
 
+---
+
+💡 **Want to unlock the full power of memory management?**
+Use STLO together with [SillyTavern-MemoryBooks (STMB)](https://github.com/aikohanasaki/SillyTavern-MemoryBooks) for best results!  
+See the [STMB + STLO Guide](guides/STMB%20and%20STLO%20-%20English.md) for setup tips and how to ensure your memories are prioritized correctly.
+
+---
+
+🌐 **Are you looking for documentation or guides in another language?**
+Please check the [`/readmes/`](readmes/) folder for translated readmes, and the [`/guides/`](guides/) folder for translated guides in your language!
+
 🆕 **Now supports character-specific overrides in group chats and precise order adjustment!**
 
 **📋 [Version History & Changelog](CHANGELOG.md)**
@@ -13,19 +24,9 @@ Settings are accessed via the "Lorebook Ordering" button in the World Info panel
 
 ---
 
-## 🚦 What's New (v1.6.0)
-
-## v1.6.0 (October 11, 2025)
-- **⚙️Reimplement Budgets:** Reimplemented budgeting.
-
-## v1.5.0 (October 11, 2025)
-- **❗Refactor:** Refactored to read from worldInfoCache instead of loadWorldInfo.
-
----
-
 ## 📋 Prerequisites
 
-- **SillyTavern:** 1.13.4+ (latest recommended)
+- **SillyTavern:** 1.13.5+ (latest recommended)
 - **World Info Strategy:** MUST use "evenly" insertion strategy for STLO to function
 - **Multiple Lorebooks:** Extension is most useful when you have multiple lorebooks that need prioritization
 
