@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v1.8.0 (October 26, 2025)
+- **✨Enhancement:** Added slash command `/stlo`. 
+
 ## v1.7.0 (October 20, 2025)
 - **🌐 Internationalization:** Added localisation. 
   - Simplified/Traditional Chinese
@@ -20,7 +23,7 @@
 
 ## v1.6.2 (October 13, 2025)
 - **🪲Bugfix:** Additional bugfixes and improvements
-- **🔧 Optimization:** Log trimmed entries for better performance
+- **🔧Optimization:** Log trimmed entries for better performance
 
 ## v1.6.1 (October 11, 2025)
 - **🪲Bugfix:** Fix max context retrieval

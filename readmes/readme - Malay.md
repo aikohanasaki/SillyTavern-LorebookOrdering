@@ -65,6 +65,34 @@ Diuji dengan tetapan berikut:
 
 ---
 
+## ⌨️ Perintah Sengkang: /stlo
+
+Buka modal Keutamaan & Belanjawan STLO untuk buku pengetahuan tertentu terus dari input sembang.
+
+- Penerangan: Lompat pantas ke tetapan STLO untuk buku pengetahuan yang diberikan.
+- Penggunaan:
+  ```
+  /stlo <nama buku pengetahuan>
+  ```
+- Argumen:
+  - nama buku pengetahuan (tidak peka huruf besar/kecil). Anda boleh menaip nama dengan ruang tanpa tanda petikan; tanda petikan adalah pilihan.
+- Contoh:
+  - `/stlo Buku Pengetahuan Saya`
+  - `/stlo "Pengetahuan Dunia"`
+  - `/stlo Ali`
+
+Apa yang ia lakukan:
+- Memilih buku pengetahuan yang sepadan dalam editor World Info.
+- Membuka modal Penjajaran Buku Pengetahuan ST untuk buku pengetahuan tersebut.
+
+Nota:
+- Memerlukan fail World Info yang sedia ada. Jika tiada yang dipilih/tersedia, anda akan melihat: “Sila cipta atau pilih fail World Info terlebih dahulu.”
+- Jika nama tidak sepadan dengan mana-mana buku pengetahuan, anda akan melihat: “Buku pengetahuan tidak ditemui: NAMA”
+- Jika anda meninggalkan nama buku pengetahuan, anda akan melihat petunjuk penggunaan: “Penggunaan: /stlo <nama buku pengetahuan>”
+- STLO masih memerlukan strategi sisipan “evenly” agar penjajaran dan belanjawan berkesan.
+
+---
+
 ## 🎯 Tahap Keutamaan
 
 ### **Sistem Keutamaan**

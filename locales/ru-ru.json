@@ -71,5 +71,10 @@
   "stlo.priority.desc.3": "Стандартный приоритет (по умолчанию в SillyTavern)",
   "stlo.priority.desc.2": "Обработка с низким приоритетом",
   "stlo.priority.desc.1": "Обрабатывается последним",
-  "stlo.priority.label": "Приоритет"
+  "stlo.priority.label": "Приоритет",
+
+  "stlo.cmd.usage": "Использование: /stlo <название лорбука>",
+  "stlo.cmd.notfound": "Лорбук не найден: ${0}",
+  "stlo.cmd.arg.name": "название лорбука (без учета регистра)",
+  "stlo.cmd.help": "Открыть приоритет и бюджет STLO для указанного лорбука."
 }

@@ -71,5 +71,10 @@
   "stlo.priority.desc.3": "표준 우선순위 (SillyTavern 기본값)",
   "stlo.priority.desc.2": "낮은 우선순위 처리",
   "stlo.priority.desc.1": "마지막에 처리",
-  "stlo.priority.label": "우선순위"
+  "stlo.priority.label": "우선순위",
+
+  "stlo.cmd.usage": "사용법: /stlo <로어북 이름>",
+  "stlo.cmd.notfound": "로어북을 찾을 수 없습니다: ${0}",
+  "stlo.cmd.arg.name": "로어북 이름(대소문자 구분 안 함)",
+  "stlo.cmd.help": "특정 로어북의 STLO 우선순위 및 예산을 엽니다."
 }

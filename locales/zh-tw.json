@@ -71,5 +71,10 @@
   "stlo.priority.desc.3": "標準優先權 (SillyTavern 預設)",
   "stlo.priority.desc.2": "較低優先權處理",
   "stlo.priority.desc.1": "最後處理",
-  "stlo.priority.label": "優先權"
+  "stlo.priority.label": "優先權",
+
+  "stlo.cmd.usage": "用法：/stlo <知識庫名稱>",
+  "stlo.cmd.notfound": "未找到知識庫：${0}",
+  "stlo.cmd.arg.name": "知識庫名稱（不區分大小寫）",
+  "stlo.cmd.help": "打開指定知識庫的 STLO 優先權與預算設定。"
 }

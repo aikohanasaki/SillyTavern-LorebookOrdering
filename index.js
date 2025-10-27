@@ -5,6 +5,9 @@ import { characters, stopGeneration, getMaxContextSize } from '../../../../scrip
 import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
 import { addLocaleData, getCurrentLocale, translate, t, applyLocale } from '../../../i18n.js';
+import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
+import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
 
 const EXTENSION_NAME = 'stlo';
 const SELECTORS = {
@@ -421,6 +424,74 @@ function getCurrentLorebookName() {
     }
 
     return null;
+}
+
+// Case-insensitive lorebook index lookup
+function findLorebookIndexByName(name) {
+    try {
+        if (!name) return -1;
+        const target = String(name).trim().toLowerCase();
+        if (!Array.isArray(world_names)) return -1;
+        return world_names.findIndex(n => typeof n === 'string' && n.trim().toLowerCase() === target);
+    } catch {
+        return -1;
+    }
+}
+
+// Select a lorebook by index in the World Info selector
+async function selectLorebookByIndex(index) {
+    const worldSelect = document.querySelector(SELECTORS.WORLD_EDITOR_SELECT);
+    if (!worldSelect) return false;
+    if (!Array.isArray(world_names) || index < 0 || index >= world_names.length) return false;
+    worldSelect.value = String(index);
+    worldSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 1));
+    return true;
+}
+
+// Open STLO modal for a specific lorebook name (required, case-insensitive)
+async function openStloForLorebook(name) {
+    const trimmed = String(name ?? '').trim();
+    if (!trimmed) {
+        toastr.warning(translate('Usage: /stlo <lorebook name>', 'stlo.cmd.usage'));
+        return '';
+    }
+
+    const idx = findLorebookIndexByName(trimmed);
+    if (idx === -1) {
+        toastr.warning(tKey('stlo.cmd.notfound', 'Lorebook not found: ${0}', trimmed));
+        return '';
+    }
+
+    // Attempt selection (silently continue if not possible), then open modal
+    await selectLorebookByIndex(idx);
+    await openLorebookSettings();
+    return '';
+}
+
+// Register the /stlo slash command
+function registerStloSlashCommand() {
+    try {
+        SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+            name: 'stlo',
+            callback: async (_args, value) => {
+                return await openStloForLorebook(typeof value === 'string' ? value : '');
+            },
+            unnamedArgumentList: [
+                SlashCommandArgument.fromProps({
+                    description: translate('lorebook name (case-insensitive)', 'stlo.cmd.arg.name'),
+                    typeList: [ARGUMENT_TYPE.STRING],
+                    isRequired: true,
+                }),
+            ],
+            helpString: `
+                <div>${translate('Open STLO Priority & Budget for a specific lorebook.', 'stlo.cmd.help')}</div>
+                <div><code>/stlo My Lorebook</code></div>
+            `,
+        }));
+    } catch (e) {
+        console.warn('[STLO] Failed to register /stlo command:', e);
+    }
 }
 
 /**
@@ -1375,6 +1446,7 @@ async function init() {
             setupEventHandlers();
             await loadStloLocale();
             addLorebookOrderingButton();
+            registerStloSlashCommand();
             registerBudgetEnforcementHandlers();
 
         } catch (error) {

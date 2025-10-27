@@ -65,6 +65,34 @@ Probado con estos ajustes:
 
 ---
 
+## ⌨️ Comando de Barra: /stlo
+
+Abre el modal de Prioridad y Presupuesto de STLO para un libro de lore específico directamente desde la entrada de chat.
+
+- Descripción: Accede rápidamente a la configuración de STLO para un libro de lore determinado.
+- Uso:
+  ```
+  /stlo <nombre del libro de lore>
+  ```
+- Argumento:
+  - nombre del libro de lore (no distingue mayúsculas y minúsculas). Puedes escribir nombres con espacios sin comillas; las comillas son opcionales.
+- Ejemplos:
+  - `/stlo Mi Libro de Lore`
+  - `/stlo "Lore del Mundo"`
+  - `/stlo Alice`
+
+Qué hace:
+- Selecciona el libro de lore correspondiente en el editor de Información Mundial.
+- Abre el modal de Ordenación de Libros de Lore de ST para ese libro de lore.
+
+Notas:
+- Requiere un archivo de Información Mundial existente. Si no hay ninguno seleccionado/disponible, verás: “Crea o selecciona primero un archivo de Información Mundial.”
+- Si el nombre no coincide con ningún libro de lore, verás: “Libro de lore no encontrado: NOMBRE”
+- Si omites el nombre del libro de lore, verás la sugerencia de uso: “Uso: /stlo <nombre del libro de lore>”
+- STLO sigue requiriendo la estrategia de inserción “uniforme” para que la ordenación y los presupuestos funcionen.
+
+---
+
 ## 🎯 Niveles de Prioridad
 
 ### **Sistema de Prioridades**

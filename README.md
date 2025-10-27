@@ -22,6 +22,9 @@ Settings are accessed via the "Lorebook Ordering" button in the World Info panel
 
 ![STLO Button](https://github.com/aikohanasaki/imagehost/blob/main/STLO.png)
 
+Q: Is it actually working? Why do I see all the entries in World Info Info? 
+A: Yes, it is working. If you look in Console (F12) you will see `[STLO] Trimmed WI entry` recording every single entry that was removed. 
+
 ---
 
 ## 📋 Prerequisites
@@ -60,6 +63,34 @@ Tested with these settings:
 - Save and repeat for other lorebooks
 
 ![Basic (global) settings](https://github.com/aikohanasaki/imagehost/blob/main/STLO%20basic.png)
+
+---
+
+## ⌨️ Slash Command: /stlo
+
+Open the STLO Priority & Budget modal for a specific lorebook directly from the chat input.
+
+- Description: Quickly jump to STLO settings for a given lorebook
+- Usage:
+  ```
+  /stlo <lorebook name>
+  ```
+- Argument:
+  - lorebook name (case-insensitive). You can type names with spaces without quotes; quotes are optional.
+- Examples:
+  - `/stlo My Lorebook`
+  - `/stlo "World Lore"`
+  - `/stlo Alice`
+
+What it does:
+- Selects the matching lorebook in the World Info editor
+- Opens the ST Lorebook Ordering modal for that lorebook
+
+Notes:
+- Requires an existing World Info file. If none is selected/available, you’ll see: “Create or select a World Info file first.”
+- If the name doesn’t match any lorebook, you’ll see: “Lorebook not found: NAME”
+- If you omit the lorebook name, you’ll see the usage hint: “Usage: /stlo <lorebook name>”
+- STLO still requires the “evenly” insertion strategy for ordering and budgets to take effect
 
 ---
 

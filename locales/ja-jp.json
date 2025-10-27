@@ -71,5 +71,10 @@
   "stlo.priority.desc.3": "標準優先度（SillyTavernデフォルト）",
   "stlo.priority.desc.2": "低優先度処理",
   "stlo.priority.desc.1": "最後に処理",
-  "stlo.priority.label": "優先度"
+  "stlo.priority.label": "優先度",
+
+  "stlo.cmd.usage": "使い方: /stlo <ロアブック名>",
+  "stlo.cmd.notfound": "ロアブックが見つかりません: ${0}",
+  "stlo.cmd.arg.name": "ロアブック名（大文字小文字を区別しない）",
+  "stlo.cmd.help": "特定のロアブックのSTLOの優先度と予算を開きます。"
 }

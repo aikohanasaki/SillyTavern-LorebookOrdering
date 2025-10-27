@@ -65,6 +65,34 @@ Diuji dengan pengaturan berikut:
 
 ---
 
+## ⌨️ Perintah Slash: /stlo
+
+Buka modal Prioritas & Anggaran STLO untuk buku pengetahuan tertentu langsung dari input obrolan.
+
+- Deskripsi: Langsung ke pengaturan STLO untuk buku pengetahuan tertentu.
+- Penggunaan:
+  ```
+  /stlo <nama buku pengetahuan>
+  ```
+- Argumen:
+  - nama buku pengetahuan (tidak peka huruf besar/kecil). Anda dapat mengetik nama dengan spasi tanpa tanda kutip; tanda kutip bersifat opsional.
+- Contoh:
+  - `/stlo Buku Pengetahuan Saya`
+  - `/stlo "Pengetahuan Dunia"`
+  - `/stlo Alice`
+
+Apa yang dilakukannya:
+- Memilih buku pengetahuan yang cocok di editor World Info.
+- Membuka modal Penjajaran Buku Pengetahuan ST untuk buku pengetahuan tersebut.
+
+Catatan:
+- Memerlukan file World Info yang sudah ada. Jika tidak ada yang dipilih/tersedia, Anda akan melihat: “Buat atau pilih file World Info terlebih dahulu.”
+- Jika nama tidak cocok dengan buku pengetahuan mana pun, Anda akan melihat: “Buku pengetahuan tidak ditemukan: NAMA”
+- Jika Anda tidak menyertakan nama buku pengetahuan, Anda akan melihat petunjuk penggunaan: “Penggunaan: /stlo <nama buku pengetahuan>”
+- STLO tetap memerlukan strategi penyisipan “evenly” agar penjajaran dan anggaran berfungsi.
+
+---
+
 ## 🎯 Tingkat Prioritas
 
 ### **Sistem Prioritas**

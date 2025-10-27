@@ -72,5 +72,10 @@
   "stlo.priority.desc.3": "标准优先级 (SillyTavern 默认)",
   "stlo.priority.desc.2": "较低优先级处理",
   "stlo.priority.desc.1": "最后处理",
-  "stlo.priority.label": "优先级"
+  "stlo.priority.label": "优先级",
+
+  "stlo.cmd.usage": "用法：/stlo <知识库名称>",
+  "stlo.cmd.notfound": "未找到知识库：${0}",
+  "stlo.cmd.arg.name": "知识库名称（不区分大小写）",
+  "stlo.cmd.help": "打开指定知识库的 STLO 优先级与预算设置。"
 }
