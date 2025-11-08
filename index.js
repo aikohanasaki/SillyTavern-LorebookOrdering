@@ -59,7 +59,7 @@ function stloDebug(...args) {
     }
 }
 
- // Utility functions
+// Utility functions
 
 // STLO i18n adapter: load extension locale and key-based interpolation
 const EXT_BASE_URL = new URL('.', import.meta.url);
@@ -1423,16 +1423,6 @@ if (!EXTENSION_STATE.dropSet) EXTENSION_STATE.dropSet = null;
  */
 async function onWorldInfoActivated(activatedEntries) {
     try {
-        // Respect "evenly" strategy requirement for budget enforcement as well
-        const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
-        if (!isEvenlyStrategy) {
-            EXTENSION_STATE.dropSet = null;
-            EXTENSION_STATE.dropEntries = [];
-            if (DEBUG_STLO) {
-                stloDebug('Budget enforcement skipped: strategy is not "Sorted Evenly".');
-            }
-            return;
-        }
         const byWorld = new Map();
         for (const e of (activatedEntries || [])) {
             if (!e?.world) continue;

@@ -2,6 +2,10 @@
 
 **← [Back to README](README.md)**
 
+## v2.0.0 (November 7, 2025)
+- **BREAKING CHANGE:** Removed check for insertion strategy. If STLO is on, it will work.  Strategy no longer matters.
+  - early empty of chat lore and persona lore to move them to global to stop ST from reading chat/persona first despite order.
+
 ## v1.8.0 (October 26, 2025)
 - **✨Enhancement:** Added slash command `/stlo`. 
 
