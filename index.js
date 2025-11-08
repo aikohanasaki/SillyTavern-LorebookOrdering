@@ -68,12 +68,25 @@ async function loadStloLocale() {
         const current = String(getCurrentLocale() || 'en').toLowerCase();
         const base = current.split('-')[0];
         const candidates = [current, base, 'en'];
+        const TIMEOUT_MS = 3000;
+
+        // Small helper for fetch timeouts
+        const fetchWithTimeout = async (resource, ms) => {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), ms);
+            try {
+                return await fetch(resource, { signal: controller.signal });
+            } finally {
+                clearTimeout(id);
+            }
+        };
+
         console.info('[STLO i18n] current locale:', current, 'candidates:', candidates.join(', '));
         for (const code of candidates) {
             try {
                 const url = new URL(`./locales/${code}.json`, EXT_BASE_URL);
-                console.info('[STLO i18n] trying locale file:', url.href);
-                const res = await fetch(url);
+                console.info('[STLO i18n] trying locale file:', url.href, `(timeout ${TIMEOUT_MS}ms)`);
+                const res = await fetchWithTimeout(url, TIMEOUT_MS);
                 if (res && res.ok) {
                     const data = await res.json();
                     addLocaleData(current, data);
@@ -86,13 +99,17 @@ async function loadStloLocale() {
                     console.info('[STLO i18n] not found or not ok for:', code, 'status:', res?.status);
                 }
             } catch (e) {
-                console.info('[STLO i18n] error while trying code:', code, e);
+                if (e && (e.name === 'AbortError' || e.code === 'ABORT_ERR')) {
+                    console.info('[STLO i18n] timeout while trying code:', code, '— moving to next candidate');
+                } else {
+                    console.info('[STLO i18n] error while trying code:', code, e);
+                }
                 // ignore and try next
             }
         }
         // Re-apply locale so existing DOM picks up newly injected keys
-        try { 
-            applyLocale(); 
+        try {
+            applyLocale();
             console.info('[STLO i18n] applyLocale() completed');
             // Expose a debug helper in DevTools: run window.stloI18nStatus()
             try {
