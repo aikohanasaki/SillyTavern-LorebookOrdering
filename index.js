@@ -250,47 +250,29 @@ function addLorebookOrderingButton() {
  */
 async function handleWorldInfoEntriesLoaded(eventData) {
     try {
-        // Check if insertion strategy is 'evenly'
-        const isEvenlyStrategy = world_info_character_strategy === world_info_insertion_strategy.evenly;
+        // Neutralize chat/persona precedence so core can't prepend them
+        const { globalLore, characterLore, chatLore, personaLore } = eventData;
+        const target =
+            (world_info_character_strategy === world_info_insertion_strategy.character_first)
+                ? characterLore
+                : globalLore;
 
-        if (DEBUG_STLO) {
-            const counts = {
-                global: (eventData.globalLore || []).length,
-                character: (eventData.characterLore || []).length,
-                chat: (eventData.chatLore || []).length,
-                persona: (eventData.personaLore || []).length
-            };
-            stloDebug('WORLDINFO_ENTRIES_LOADED received entries:', counts, 'strategyEvenly=', isEvenlyStrategy);
+        if (Array.isArray(chatLore) && chatLore.length) {
+            target.push(...chatLore);
+            chatLore.length = 0; // in-place clear
+        }
+        if (Array.isArray(personaLore) && personaLore.length) {
+            target.push(...personaLore);
+            personaLore.length = 0; // in-place clear
         }
 
-        // If not evenly strategy, handle warning and return
-        if (!isEvenlyStrategy) {
-            if (DEBUG_STLO) {
-                stloDebug('Skipping STLO ordering: strategy is not "Sorted Evenly".');
-            }
-            // Only show warning for user-initiated generation (skip automatic greeting generation)
-            if (EXTENSION_STATE.generationsSinceChatChange > 1) {
-                const result = await showStrategyWarning();
-                if (result === 'abort') {
-                    // User chose to stop generation to fix settings
-                    toastr.warning(translate('Generation stopped. Please switch to "evenly" strategy for STLO to work.', 'stlo.warn.stopped'), 'STLO', { timeOut: 5000 });
-                    return; // Generation already stopped in the popup callback
-                }
-                if (result === 'disable') {
-                    // User chose to continue without STLO
-                    toastr.info(translate('STLO disabled - not using "evenly" strategy', 'stlo.warn.disabled'), 'STLO', { timeOut: 3000 });
-                    return; // Silently disable STLO without error
-                }
-            }
-            return;
-        }
+        // Optional stability: keep local order stable
+        target.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
 
-        // Apply evenly strategy implementation with priority ordering only
+        // Always apply STLO ordering across strategies
         await applyPriorityOrdering(eventData);
-
     } catch (error) {
-        toastr.warning(translate('STLO encountered an error. Disabling STLO, returning to core ST function', 'stlo.error.encountered'), 'Extension Warning');
-        return;
+        console.warn('[STLO] handleWorldInfoEntriesLoaded error:', error);
     }
 }
 
@@ -1405,8 +1387,19 @@ async function applyPriorityOrdering(eventData) {
             }
         }
 
-        // Sort processed entries by new order (highest first)
-        processedEntries.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+        // Sort processed entries by new order (highest first) with deterministic tie-breakers
+        processedEntries.sort((a, b) => {
+            const ao = (a.order ?? 100);
+            const bo = (b.order ?? 100);
+            if (bo !== ao) return bo - ao;
+            const au = (a.uid ?? 0);
+            const bu = (b.uid ?? 0);
+            if (au !== bu) return au - bu;
+            const aw = String(a.world ?? '');
+            const bw = String(b.world ?? '');
+            if (aw !== bw) return aw.localeCompare(bw);
+            return 0;
+        });
 
         const preCounts = {
             global: (globalLore || []).length,
