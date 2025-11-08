@@ -1281,15 +1281,25 @@ function getPriorityDescription(priority) {
  */
 async function applyPriorityOrdering(eventData) {
     try {
-        const { globalLore, characterLore, chatLore, personaLore } = eventData;
+        // Robust payload/arrays
+        if (!eventData || typeof eventData !== 'object') return;
 
-        // Apply priority-based ordering to all entries
-        const allEntries = [
-            ...(globalLore || []),
-            ...(characterLore || []),
-            ...(chatLore || []),
-            ...(personaLore || [])
-        ];
+        const gl = Array.isArray(eventData.globalLore) ? eventData.globalLore : (eventData.globalLore = []);
+        const cl = Array.isArray(eventData.characterLore) ? eventData.characterLore : (eventData.characterLore = []);
+        const chat = Array.isArray(eventData.chatLore) ? eventData.chatLore : (eventData.chatLore = []);
+        const persona = Array.isArray(eventData.personaLore) ? eventData.personaLore : (eventData.personaLore = []);
+
+        const allEntries = [...gl, ...cl, ...chat, ...persona];
+
+        // Cache settings by world to avoid per-entry awaits
+        const settingsCache = new Map();
+        const getSettings = async (world) => {
+            if (!world) return null;
+            if (settingsCache.has(world)) return settingsCache.get(world);
+            const s = await getLorebookSettings(world);
+            settingsCache.set(world, s);
+            return s;
+        };
 
         // Process entries with filtering and optimization
         const processedEntries = [];
@@ -1297,16 +1307,15 @@ async function applyPriorityOrdering(eventData) {
 
         for (const entry of allEntries) {
             try {
-                if (!entry.world) {
+                if (!entry?.world) {
                     // Entries without world name get default priority and are always included
-                    const originalOrder = Math.min(entry.order ?? 100, 9999);
+                    const originalOrder = Math.min(entry?.order ?? 100, 9999);
                     entry.order = PRIORITY_LEVELS.DEFAULT * 10000 + originalOrder;
                     processedEntries.push(entry);
                     continue;
                 }
 
-                // Load settings once per lorebook
-                const settings = await getLorebookSettings(entry.world);
+                const settings = await getSettings(entry.world) || {};
 
                 // FILTERING LOGIC: Apply onlyWhenSpeaking rules
                 if (settings.onlyWhenSpeaking) {
@@ -1317,8 +1326,10 @@ async function applyPriorityOrdering(eventData) {
                     }
 
                     // Skip if current speaker not in character overrides
-                    const hasCharacterOverride = settings.characterOverrides?.hasOwnProperty(EXTENSION_STATE.currentSpeakingCharacter);
-                    if (!hasCharacterOverride) {
+                    const hasOverride = settings.characterOverrides
+                        ? Object.prototype.hasOwnProperty.call(settings.characterOverrides, EXTENSION_STATE.currentSpeakingCharacter)
+                        : false;
+                    if (!hasOverride) {
                         skippedOnlyWhenSpeaking++;
                         continue; // Skip - character not assigned
                     }
@@ -1348,8 +1359,8 @@ async function applyPriorityOrdering(eventData) {
 
                 processedEntries.push(entry);
 
-            } catch (error) {
-                console.warn(`Error setting priority for entry from ${entry.world}:`, error);
+            } catch (innerErr) {
+                console.warn(`Error setting priority for entry from ${entry?.world}:`, innerErr);
                 // Keep original order on error and include entry
                 processedEntries.push(entry);
             }
@@ -1357,33 +1368,31 @@ async function applyPriorityOrdering(eventData) {
 
         // Sort processed entries by new order (highest first) with deterministic tie-breakers
         processedEntries.sort((a, b) => {
-            const ao = (a.order ?? 100);
-            const bo = (b.order ?? 100);
+            const ao = (a?.order ?? 100);
+            const bo = (b?.order ?? 100);
             if (bo !== ao) return bo - ao;
-            const au = (a.uid ?? 0);
-            const bu = (b.uid ?? 0);
+            const au = (a?.uid ?? 0);
+            const bu = (b?.uid ?? 0);
             if (au !== bu) return au - bu;
-            const aw = String(a.world ?? '');
-            const bw = String(b.world ?? '');
+            const aw = String(a?.world ?? '');
+            const bw = String(b?.world ?? '');
             if (aw !== bw) return aw.localeCompare(bw);
             return 0;
         });
 
         const preCounts = {
-            global: (globalLore || []).length,
-            character: (characterLore || []).length,
-            chat: (chatLore || []).length,
-            persona: (personaLore || []).length
+            global: gl.length,
+            character: cl.length,
+            chat: chat.length,
+            persona: persona.length
         };
 
-        // Clear all arrays
-        globalLore.length = 0;
-        characterLore.length = 0;
-        chatLore.length = 0;
-        personaLore.length = 0;
-
-        // Put everything in globalLore
-        globalLore.push(...processedEntries);
+        // Clear all arrays then put everything in globalLore
+        gl.length = 0;
+        cl.length = 0;
+        chat.length = 0;
+        persona.length = 0;
+        gl.push(...processedEntries);
 
         if (DEBUG_STLO) {
             stloDebug('applyPriorityOrdering summary:', { preCounts, processed: processedEntries.length, skippedOnlyWhenSpeaking });
