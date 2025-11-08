@@ -1,7 +1,7 @@
 import { event_types, eventSource } from '../../../events.js';
 import { getTokenCount } from '../../../tokenizers.js';
 import { getContext } from '../../../extensions.js';
-import { characters, stopGeneration, getMaxContextSize } from '../../../../script.js';
+import { characters, getMaxContextSize } from '../../../../script.js';
 import { loadWorldInfo, saveWorldInfo, worldInfoCache, world_info_character_strategy, world_info_insertion_strategy, world_info_budget, world_info_budget_cap, world_names } from '../../../world-info.js';
 import { POPUP_TYPE, Popup } from '../../../popup.js';
 import { addLocaleData, getCurrentLocale, translate, t, applyLocale } from '../../../i18n.js';
@@ -47,7 +47,6 @@ const PRIORITY_LEVELS = {
 const EXTENSION_STATE = {
     modalOpen: false,
     pendingAnimationFrame: null,
-    generationsSinceChatChange: 0,
     currentSpeakingCharacter: null,  // Track current speaking character for group chat overrides
     budgetHandlersRegistered: false
 };
@@ -150,13 +149,7 @@ function setupEventHandlers() {
     const handler = (data) => handleWorldInfoEntriesLoaded(data);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
 
-    const generationStartHandler = () => {
-        EXTENSION_STATE.generationsSinceChatChange++;
-    };
-    const generationStopHandler = () => { };
-    const generationEndHandler = () => { };
     const chatChangedHandler = () => {
-        EXTENSION_STATE.generationsSinceChatChange = 0;
         EXTENSION_STATE.currentSpeakingCharacter = null;  // Clear character override state on chat change
     };
 
@@ -172,18 +165,12 @@ function setupEventHandlers() {
         }
     };
 
-    eventSource.on(event_types.GENERATION_STARTED, generationStartHandler);
-    eventSource.on(event_types.GENERATION_STOPPED, generationStopHandler);
-    eventSource.on(event_types.GENERATION_ENDED, generationEndHandler);
     eventSource.on(event_types.CHAT_CHANGED, chatChangedHandler);
     eventSource.on(event_types.GROUP_MEMBER_DRAFTED, groupMemberDraftedHandler);
 
     // Track for cleanup
     eventListeners.push(
         { source: eventSource, event: event_types.WORLDINFO_ENTRIES_LOADED, handler: handler },
-        { source: eventSource, event: event_types.GENERATION_STARTED, handler: generationStartHandler },
-        { source: eventSource, event: event_types.GENERATION_STOPPED, handler: generationStopHandler },
-        { source: eventSource, event: event_types.GENERATION_ENDED, handler: generationEndHandler },
         { source: eventSource, event: event_types.CHAT_CHANGED, handler: chatChangedHandler },
         { source: eventSource, event: event_types.GROUP_MEMBER_DRAFTED, handler: groupMemberDraftedHandler }
     );
@@ -280,34 +267,6 @@ async function handleWorldInfoEntriesLoaded(eventData) {
  * Show warning popup when strategy is not 'evenly' but special lorebooks exist
  * @returns {string} 'continue' or 'disable'
  */
-async function showStrategyWarning() {
-    return new Promise((resolve) => {
-        const warningHtml = `
-            <div style="text-align: left; line-height: 1.4;">
-                <h4 data-i18n="stlo.warn.title">⚠️ Caution</h4>
-                <span data-i18n="stlo.warn.body">Your World Info Insertion Strategy is not set to "Sorted Evenly". STLO requires the "Sorted Evenly" strategy to work properly. What would you like to do?</span>
-            </div>
-        `;
-
-        const popup = new Popup(warningHtml, POPUP_TYPE.CONFIRM, '', {
-            okButton: translate('Disable STLO', 'stlo.warn.disable'),
-            cancelButton: translate('Stop Generation', 'stlo.warn.stop'),
-            wide: true,
-            large: false,
-            onClosing: (popup) => {
-                if (popup.result === 1) { // POPUP_RESULT.AFFIRMATIVE (OK) - "Disable STLO"
-                    resolve('disable');
-                } else { // POPUP_RESULT.NEGATIVE (Cancel) - "Stop Generation"
-                    stopGeneration();
-                    resolve('abort');
-                }
-                return true; // Allow popup to close
-            }
-        });
-
-        popup.show();
-    });
-}
 
 /**
  * Get settings for a specific lorebook
