@@ -258,6 +258,7 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 
         // Always apply STLO ordering across strategies
         await applyPriorityOrdering(eventData);
+        await enforceBudgetPreScan(eventData);
     } catch (error) {
         console.warn('[STLO] handleWorldInfoEntriesLoaded error:', error);
     }
@@ -1377,6 +1378,41 @@ async function applyPriorityOrdering(eventData) {
 
     } catch (error) {
         console.error('Error applying priority ordering:', error);
+    }
+}
+
+/**
+ * Budget pre-scan enforcement: disable overflow entries based on total WI budget.
+ * Runs at WORLDINFO_ENTRIES_LOADED, before the core scan loop. This allows budget
+ * enforcement without modifying base code. Ignores entries with ignoreBudget=true.
+ */
+async function enforceBudgetPreScan(eventData) {
+    try {
+        const { globalLore = [], characterLore = [], chatLore = [], personaLore = [] } = eventData || {};
+        // After applyPriorityOrdering, everything resides in globalLore; keep defensive support for others.
+        const ordered = [
+            ...(globalLore || []),
+            ...(characterLore || []),
+            ...(chatLore || []),
+            ...(personaLore || []),
+        ];
+
+        const totalBudget = calculateTotalWIBudget();
+        if (!(totalBudget > 0)) return;
+
+        let used = 0;
+        for (const e of ordered) {
+            if (!e) continue;
+            if (e.ignoreBudget === true) continue; // keep without consuming budget
+            const tokens = Number(getTokenCount(e.content || '')) || 0;
+            if ((used + tokens) <= totalBudget) {
+                used += tokens;
+            } else {
+                e.disable = true; // respected by core checkWorldInfo
+            }
+        }
+    } catch (err) {
+        console.warn('[STLO] enforceBudgetPreScan error:', err);
     }
 }
 
