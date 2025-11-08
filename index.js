@@ -264,11 +264,6 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 }
 
 /**
- * Show warning popup when strategy is not 'evenly' but special lorebooks exist
- * @returns {string} 'continue' or 'disable'
- */
-
-/**
  * Get settings for a specific lorebook
  * @param {string} worldName - Name of the lorebook
  * @returns {Object} Lorebook settings or defaults
