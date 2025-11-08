@@ -237,24 +237,37 @@ function addLorebookOrderingButton() {
  */
 async function handleWorldInfoEntriesLoaded(eventData) {
     try {
-        // Neutralize chat/persona precedence so core can't prepend them
-        const { globalLore, characterLore, chatLore, personaLore } = eventData;
-        const target =
-            (world_info_character_strategy === world_info_insertion_strategy.character_first)
-                ? characterLore
-                : globalLore;
+        // Validate payload early
+        if (!eventData || typeof eventData !== 'object') return;
 
-        if (Array.isArray(chatLore) && chatLore.length) {
-            target.push(...chatLore);
-            chatLore.length = 0; // in-place clear
+        // Ensure arrays exist on the original object (so mutations affect caller)
+        const gl = Array.isArray(eventData.globalLore) ? eventData.globalLore : (eventData.globalLore = []);
+        const cl = Array.isArray(eventData.characterLore) ? eventData.characterLore : (eventData.characterLore = []);
+        const chat = Array.isArray(eventData.chatLore) ? eventData.chatLore : (eventData.chatLore = []);
+        const persona = Array.isArray(eventData.personaLore) ? eventData.personaLore : (eventData.personaLore = []);
+
+        // Decide target safely (guard enum access with optional chaining)
+        const target = (world_info_character_strategy === (world_info_insertion_strategy?.character_first))
+            ? cl
+            : gl;
+
+        if (!Array.isArray(target)) return;
+
+        // Neutralize chat/persona precedence so core can't prepend them
+        if (chat.length) {
+            // Defend against rare aliasing (chat === target)
+            if (chat !== target) target.push(...chat);
+            chat.length = 0; // in-place clear
         }
-        if (Array.isArray(personaLore) && personaLore.length) {
-            target.push(...personaLore);
-            personaLore.length = 0; // in-place clear
+        if (persona.length) {
+            if (persona !== target) target.push(...persona);
+            persona.length = 0; // in-place clear
         }
 
         // Optional stability: keep local order stable
-        target.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+        if (target.length) {
+            target.sort((a, b) => ((b?.order ?? 100) - (a?.order ?? 100)));
+        }
 
         // Always apply STLO ordering across strategies
         await applyPriorityOrdering(eventData);
