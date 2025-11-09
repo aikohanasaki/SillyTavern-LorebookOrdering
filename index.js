@@ -73,6 +73,26 @@ function debounce(fn, wait = 50) {
     };
 }
 
+// Fire-and-forget background scheduler
+function scheduleBackground(fn) {
+    const run = () => {
+        try {
+            const ret = fn();
+            if (ret && typeof ret.then === 'function') {
+                ret.catch(e => console.warn('[STLO] scheduleBackground task error:', e));
+            }
+        } catch (e) {
+            console.warn('[STLO] scheduleBackground task sync error:', e);
+        }
+    };
+    try {
+        if (typeof requestIdleCallback === 'function') {
+            return requestIdleCallback(run, { timeout: 120 });
+        }
+    } catch {}
+    return setTimeout(run, 0);
+}
+
 // Cross-event token count cache
 const TOKEN_COUNT_CACHE = new Map(); // key: `${uid}:${len}`
 function getEntryTokenCountCached(entry) {
@@ -192,7 +212,11 @@ function setupEventHandlers() {
     cleanupListeners(eventListeners, eventListeners);
 
     // Hook into world info entries loading to apply our sorting (debounced to coalesce bursts)
-    const handler = debounce((data) => handleWorldInfoEntriesLoaded(data), 50);
+    // Ensure non-blocking: schedule heavy work in background so the emitter doesn't await a Promise.
+    const handler = debounce((data) => {
+        // Fire-and-forget: do not return or await any Promise here
+        scheduleBackground(() => handleWorldInfoEntriesLoaded(data));
+    }, 50);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
 
     const chatChangedHandler = () => {
