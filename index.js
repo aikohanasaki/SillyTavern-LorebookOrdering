@@ -58,7 +58,36 @@ function stloDebug(...args) {
         console.info('[STLO][DEBUG]', ...args);
     }
 }
+// Utility functions
 
+// Simple debounce (leading=false, trailing=true)
+function debounce(fn, wait = 50) {
+    let t = null, lastArgs = null;
+    return function debounced(...args) {
+        lastArgs = args;
+        if (t) clearTimeout(t);
+        t = setTimeout(() => {
+            t = null;
+            fn.apply(this, lastArgs);
+        }, wait);
+    };
+}
+
+// Cross-event token count cache
+const TOKEN_COUNT_CACHE = new Map(); // key: `${uid}:${len}`
+function getEntryTokenCountCached(entry) {
+    try {
+        const uid = entry?.uid ?? '';
+        const content = typeof entry?.content === 'string' ? entry.content : '';
+        const key = `${uid}:${content.length}`;
+        if (TOKEN_COUNT_CACHE.has(key)) return TOKEN_COUNT_CACHE.get(key);
+        const tokens = Number(getTokenCount(content || '')) || 0;
+        TOKEN_COUNT_CACHE.set(key, tokens);
+        return tokens;
+    } catch {
+        return 0;
+    }
+}
 // Utility functions
 
 // STLO i18n adapter: load extension locale and key-based interpolation
@@ -162,8 +191,8 @@ function setupEventHandlers() {
     // Clean up existing event listeners
     cleanupListeners(eventListeners, eventListeners);
 
-    // Hook into world info entries loading to apply our sorting
-    const handler = (data) => handleWorldInfoEntriesLoaded(data);
+    // Hook into world info entries loading to apply our sorting (debounced to coalesce bursts)
+    const handler = debounce((data) => handleWorldInfoEntriesLoaded(data), 50);
     eventSource.on(event_types.WORLDINFO_ENTRIES_LOADED, handler);
 
     const chatChangedHandler = () => {
@@ -254,39 +283,9 @@ function addLorebookOrderingButton() {
  */
 async function handleWorldInfoEntriesLoaded(eventData) {
     try {
-        // Validate payload early
         if (!eventData || typeof eventData !== 'object') return;
 
-        // Ensure arrays exist on the original object (so mutations affect caller)
-        const gl = Array.isArray(eventData.globalLore) ? eventData.globalLore : (eventData.globalLore = []);
-        const cl = Array.isArray(eventData.characterLore) ? eventData.characterLore : (eventData.characterLore = []);
-        const chat = Array.isArray(eventData.chatLore) ? eventData.chatLore : (eventData.chatLore = []);
-        const persona = Array.isArray(eventData.personaLore) ? eventData.personaLore : (eventData.personaLore = []);
-
-        // Decide target safely (guard enum access with optional chaining)
-        const target = (world_info_character_strategy === (world_info_insertion_strategy?.character_first))
-            ? cl
-            : gl;
-
-        if (!Array.isArray(target)) return;
-
-        // Neutralize chat/persona precedence so core can't prepend them
-        if (chat.length) {
-            // Defend against rare aliasing (chat === target)
-            if (chat !== target) target.push(...chat);
-            chat.length = 0; // in-place clear
-        }
-        if (persona.length) {
-            if (persona !== target) target.push(...persona);
-            persona.length = 0; // in-place clear
-        }
-
-        // Optional stability: keep local order stable
-        if (target.length) {
-            target.sort((a, b) => ((b?.order ?? 100) - (a?.order ?? 100)));
-        }
-
-        // Always apply STLO ordering across strategies
+        // Delegate consolidation, sorting, and budget to dedicated functions
         await applyPriorityOrdering(eventData);
         await enforceBudgetPreScan(eventData);
     } catch (error) {
@@ -1298,7 +1297,6 @@ function getPriorityDescription(priority) {
  */
 async function applyPriorityOrdering(eventData) {
     try {
-        // Robust payload/arrays
         if (!eventData || typeof eventData !== 'object') return;
 
         const gl = Array.isArray(eventData.globalLore) ? eventData.globalLore : (eventData.globalLore = []);
@@ -1308,55 +1306,60 @@ async function applyPriorityOrdering(eventData) {
 
         const allEntries = [...gl, ...cl, ...chat, ...persona];
 
-        // Cache settings by world to avoid per-entry awaits
+        // Prefetch settings once per unique world
         const settingsCache = new Map();
-        const getSettings = async (world) => {
-            if (!world) return null;
-            if (settingsCache.has(world)) return settingsCache.get(world);
-            const s = await getLorebookSettings(world);
-            settingsCache.set(world, s);
-            return s;
-        };
+        const uniqueWorlds = [];
+        const seen = new Set();
+        for (const e of allEntries) {
+            const w = e?.world;
+            if (w && !seen.has(w)) {
+                seen.add(w);
+                uniqueWorlds.push(w);
+            }
+        }
+        if (uniqueWorlds.length) {
+            await Promise.all(
+                uniqueWorlds.map(async (w) => {
+                    const s = await getLorebookSettings(w);
+                    settingsCache.set(w, s || {});
+                })
+            );
+        }
 
-        // Process entries with filtering and optimization
         const processedEntries = [];
         let skippedOnlyWhenSpeaking = 0;
 
         for (const entry of allEntries) {
             try {
                 if (!entry?.world) {
-                    // Entries without world name get default priority and are always included
                     const originalOrder = Math.min(entry?.order ?? 100, 9999);
                     entry.order = PRIORITY_LEVELS.DEFAULT * 10000 + originalOrder;
                     processedEntries.push(entry);
                     continue;
                 }
 
-                const settings = await getSettings(entry.world) || {};
+                const settings = settingsCache.get(entry.world) || {};
 
-                // FILTERING LOGIC: Apply onlyWhenSpeaking rules
+                // FILTERING: onlyWhenSpeaking rules
                 if (settings.onlyWhenSpeaking) {
-                    // Skip if not in group chat (currentSpeakingCharacter would be null)
                     if (!EXTENSION_STATE.currentSpeakingCharacter) {
                         skippedOnlyWhenSpeaking++;
-                        continue; // Skip in single chats
+                        continue;
                     }
-
-                    // Skip if current speaker not in character overrides
                     const hasOverride = settings.characterOverrides
                         ? Object.prototype.hasOwnProperty.call(settings.characterOverrides, EXTENSION_STATE.currentSpeakingCharacter)
                         : false;
                     if (!hasOverride) {
                         skippedOnlyWhenSpeaking++;
-                        continue; // Skip - character not assigned
+                        continue;
                     }
                 }
 
-                // PRIORITY LOGIC: Get priority/adjustment from cached settings
+                // PRIORITY
                 let priority = settings.priority ?? PRIORITY_LEVELS.DEFAULT;
                 let orderAdjustment = settings.orderAdjustment ?? 0;
 
-                // Apply character overrides if in group chat
+                // Character overrides in group chat
                 if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
                     const override = settings.characterOverrides[EXTENSION_STATE.currentSpeakingCharacter];
                     if (override) {
@@ -1365,20 +1368,17 @@ async function applyPriorityOrdering(eventData) {
                     }
                 }
 
-                // Apply order adjustment group-only setting
+                // Group-only adjustment
                 if (settings.orderAdjustmentGroupOnly && !EXTENSION_STATE.currentSpeakingCharacter) {
                     orderAdjustment = 0;
                 }
 
-                // Apply order calculation
                 const originalOrder = Math.min(entry.order ?? 100, 9999);
                 entry.order = priority * 10000 + orderAdjustment + originalOrder;
 
                 processedEntries.push(entry);
-
             } catch (innerErr) {
                 console.warn(`Error setting priority for entry from ${entry?.world}:`, innerErr);
-                // Keep original order on error and include entry
                 processedEntries.push(entry);
             }
         }
@@ -1397,14 +1397,7 @@ async function applyPriorityOrdering(eventData) {
             return 0;
         });
 
-        const preCounts = {
-            global: gl.length,
-            character: cl.length,
-            chat: chat.length,
-            persona: persona.length
-        };
-
-        // Clear all arrays then put everything in globalLore
+        // Rebuild arrays: everything into globalLore
         gl.length = 0;
         cl.length = 0;
         chat.length = 0;
@@ -1412,9 +1405,8 @@ async function applyPriorityOrdering(eventData) {
         gl.push(...processedEntries);
 
         if (DEBUG_STLO) {
-            stloDebug('applyPriorityOrdering summary:', { preCounts, processed: processedEntries.length, skippedOnlyWhenSpeaking });
+            stloDebug('applyPriorityOrdering summary:', { processed: processedEntries.length, skippedOnlyWhenSpeaking });
         }
-
     } catch (error) {
         console.error('Error applying priority ordering:', error);
     }
@@ -1443,7 +1435,7 @@ async function enforceBudgetPreScan(eventData) {
         for (const e of ordered) {
             if (!e) continue;
             if (e.ignoreBudget === true) continue; // keep without consuming budget
-            const tokens = Number(getTokenCount(e.content || '')) || 0;
+            const tokens = getEntryTokenCountCached(e);
             if ((used + tokens) <= totalBudget) {
                 used += tokens;
             } else {
@@ -1505,7 +1497,6 @@ async function onWorldInfoActivated(activatedEntries) {
 
         // Compute total WI budget in tokens aligned with base ST config
         const totalBudget = calculateTotalWIBudget();
-        const tokenCache = new Map();
 
         for (const [world, list] of byWorld.entries()) {
             // Load per-lorebook settings to determine mode/value
@@ -1520,14 +1511,7 @@ async function onWorldInfoActivated(activatedEntries) {
 
             for (const e of list) {
                 const ignore = e?.ignoreBudget === true;
-                let tokens;
-                const uid = e?.uid;
-                if (uid && tokenCache.has(uid)) {
-                    tokens = tokenCache.get(uid);
-                } else {
-                    tokens = Number(getTokenCount(e?.content || '')) || 0;
-                    if (uid) tokenCache.set(uid, tokens);
-                }
+                const tokens = getEntryTokenCountCached(e);
 
                 if (ignore) {
                     // keep entry; do not consume budget
@@ -1611,6 +1595,10 @@ function onChatCompletionPromptReady(eventData) {
 function resetBudgetState() {
     EXTENSION_STATE.dropSet = null;
     EXTENSION_STATE.dropEntries = [];
+    // Periodically clear token cache to avoid unbounded growth between generations/chats
+    try {
+        TOKEN_COUNT_CACHE.clear();
+    } catch {}
 }
 
 // Compute total World Info budget (tokens) from base ST config
