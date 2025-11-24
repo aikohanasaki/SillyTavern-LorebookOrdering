@@ -17,7 +17,8 @@ const SELECTORS = {
     LOREBOOK_PRIORITY_SELECT: 'lorebook_priority_select',
     LOREBOOK_BUDGET_MODE: 'lorebook_budget_mode',
     LOREBOOK_BUDGET_VALUE: 'lorebook_budget_value',
-    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container'
+    LOREBOOK_BUDGET_VALUE_CONTAINER: 'lorebook_budget_value_container',
+    LOREBOOK_RANDOM_TRIM: 'lorebook_random_trim'
 };
 
 // Default settings for lorebooks
@@ -28,7 +29,8 @@ const DEFAULT_LOREBOOK_SETTINGS = {
     orderAdjustment: 0, // Order adjustment value (-10000 to +10000, default 0)
     orderAdjustmentGroupOnly: false, // Only apply order adjustment in group chats
     characterOverrides: {},  // Character-specific priority overrides for group chats
-    onlyWhenSpeaking: false  // Only activate in group chats when assigned characters are speaking
+    onlyWhenSpeaking: false,  // Only activate in group chats when assigned characters are speaking
+    randomTrim: false
 };
 
 // Cleanup tracking
@@ -111,7 +113,16 @@ function getEntryTokenCountCached(entry) {
         return 0;
     }
 }
-// Utility functions
+﻿// Utility functions
+
+// Random shuffle helper for random trimming
+function shuffleInPlace(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
 
 // STLO i18n adapter: load extension locale and key-based interpolation
 const EXT_BASE_URL = new URL('.', import.meta.url);
@@ -618,6 +629,7 @@ async function openLorebookSettings() {
                 const orderAdjustmentInput = document.getElementById('lorebook-order-adjustment');
                 const orderAdjustmentGroupOnly = document.getElementById('lorebook-order-adjustment-group-only');
                 const onlyWhenSpeaking = document.getElementById('lorebook-only-when-speaking');
+                const randomTrimEl = document.getElementById(SELECTORS.LOREBOOK_RANDOM_TRIM);
 
                 if (prioritySelect && budgetModeSelect && budgetValueInput && orderAdjustmentEnabled && orderAdjustmentInput && orderAdjustmentGroupOnly && onlyWhenSpeaking) {
                     return {
@@ -628,6 +640,7 @@ async function openLorebookSettings() {
                         orderAdjustment: orderAdjustmentInput.value,
                         orderAdjustmentGroupOnly: orderAdjustmentGroupOnly.checked,
                         onlyWhenSpeaking: onlyWhenSpeaking.checked,
+                        randomTrim: Boolean(randomTrimEl?.checked),
                         timestamp: Date.now()
                     };
                 }
@@ -702,7 +715,8 @@ async function openLorebookSettings() {
                     orderAdjustment: validatedOrderAdjustment,
                     orderAdjustmentGroupOnly: formState.orderAdjustmentGroupOnly || false,
                     characterOverrides: characterOverrides,
-                    onlyWhenSpeaking: formState.onlyWhenSpeaking || false
+                    onlyWhenSpeaking: formState.onlyWhenSpeaking || false,
+                    randomTrim: !!formState.randomTrim
                 };
 
                 return validatedForm;
@@ -922,6 +936,11 @@ function createBudgetControls(scope, currentSettings = {}) {
                 <input type="number" id="${SELECTORS.LOREBOOK_BUDGET_VALUE}" class="text_pole textarea_compact"
                        value="${value || 0}" placeholder="0" style="width: 120px;">
                 <small id="${SELECTORS.LOREBOOK_BUDGET_VALUE_CONTAINER}-hint"></small>
+                <label class="checkbox_label" for="${SELECTORS.LOREBOOK_RANDOM_TRIM}" style="margin-left: 10px;">
+                    <input type="checkbox" id="${SELECTORS.LOREBOOK_RANDOM_TRIM}" ${currentSettings.randomTrim ? 'checked' : ''}>
+                    <span class="checkmark"></span>
+                    <span>${translate('Random trim (drop random entries when over budget)', 'stlo.budget.randomTrim')}</span>
+                </label>
             </div>
             <small data-i18n="stlo.budget.tip">Tip: default (0) lets ST decide; Fixed with 1 effectively chokes off this lorebook.</small>
         </div>
@@ -1538,12 +1557,17 @@ async function onWorldInfoActivated(activatedEntries) {
             const perBudget = await calculateLorebookBudget(settings, totalBudget);
             if (!(perBudget > 0)) continue;
 
-            // Sort by new order (desc), fallback to 100 if undefined
-            list.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+            // Sort by new order (desc) or randomize if enabled, fallback to 100 if undefined
+            const sorted = list.slice();
+            if (settings.randomTrim) {
+                shuffleInPlace(sorted);
+            } else {
+                sorted.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+            }
 
             let usedTokens = 0;
 
-            for (const e of list) {
+            for (const e of sorted) {
                 const ignore = e?.ignoreBudget === true;
                 const tokens = getEntryTokenCountCached(e);
 
@@ -1777,8 +1801,13 @@ function registerPerLoopBudgetTrimmer() {
                     // Only trim when an explicit budget is set (> 0). Default mode returns 0.
                     if (!(perBudget > 0)) continue;
 
-                    // Sort entries by order desc (mirrors final assembly ordering)
-                    const sorted = list.slice().sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+                    // Sort entries by order desc (mirrors final assembly ordering) or randomize if enabled
+                    let sorted = list.slice();
+                    if (settings.randomTrim) {
+                        shuffleInPlace(sorted);
+                    } else {
+                        sorted.sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+                    }
 
                     let used = 0;
                     const toDrop = [];
