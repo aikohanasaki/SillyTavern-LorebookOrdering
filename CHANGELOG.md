@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v2.1.0 (November 23, 2025)
+- **✨Enhancement:** THANK YOU @Wolfsblvt for [this PR](https://github.com/SillyTavern/SillyTavern/pull/4797#issuecomment-3568450453) which added the `WORLDINFO_SCAN_DONE` event! 💖 That enabled us to SIGNIFICANTLY speed up STLO. 💖💖💖 This extension is backwards compatible, but you will need the above PR (currently in ST staging, hopefully will be in ST 1.15.0 release) in order to see the speed improvements.
+
 ## v2.0.1 (November 8, 2025)
 - **🪲Bugfix:** Guard crashing on chat load
 

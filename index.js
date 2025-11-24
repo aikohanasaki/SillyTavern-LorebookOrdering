@@ -51,6 +51,9 @@ const EXTENSION_STATE = {
     budgetHandlersRegistered: false
 };
 
+// Feature detection: WORLDINFO_SCAN_DONE exists only on newer ST branches
+const HAS_WORLDINFO_SCAN_DONE = Boolean(event_types && event_types.WORLDINFO_SCAN_DONE);
+
 // Debugging flag and helper
 const DEBUG_STLO = false;
 function stloDebug(...args) {
@@ -311,7 +314,10 @@ async function handleWorldInfoEntriesLoaded(eventData) {
 
         // Delegate consolidation, sorting, and budget to dedicated functions
         await applyPriorityOrdering(eventData);
-        await enforceBudgetPreScan(eventData);
+        // In newer branches (with WORLDINFO_SCAN_DONE), we trim per-loop and skip pre-scan entirely.
+        if (!HAS_WORLDINFO_SCAN_DONE) {
+            await enforceBudgetPreScan(eventData);
+        }
     } catch (error) {
         console.warn('[STLO] handleWorldInfoEntriesLoaded error:', error);
     }
@@ -1486,6 +1492,10 @@ async function init() {
             addLorebookOrderingButton();
             registerStloSlashCommand();
             registerBudgetEnforcementHandlers();
+            // Register per-loop trimmer only on newer branches
+            if (HAS_WORLDINFO_SCAN_DONE) {
+                registerPerLoopBudgetTrimmer();
+            }
 
         } catch (error) {
             console.error('Failed to load STLO extension:', error);
@@ -1722,5 +1732,96 @@ function registerBudgetEnforcementHandlers() {
         console.debug('[STLO] Budget enforcement handlers registered');
     } catch (e) {
         console.warn('[STLO] Failed to register budget enforcement handlers:', e);
+    }
+}
+
+/**
+ * Register per-loop budget trimming on WORLDINFO_SCAN_DONE (newer ST branches).
+ * Only trims lorebooks that have an explicit budget (> 0 resolved tokens).
+ */
+function registerPerLoopBudgetTrimmer() {
+    try {
+        const onScanDone = async (args) => {
+            try {
+                // args.activated.entries: Map<string, WIEntry>
+                // args.activated.text: string
+                const entriesMap = args?.activated?.entries;
+                if (!entriesMap || typeof entriesMap.forEach !== 'function') return;
+
+                // Compute total WI budget once (used by percentage_budget mode)
+                const totalBudget = calculateTotalWIBudget();
+
+                // Group activated entries by lorebook (world)
+                const byWorld = new Map();
+                entriesMap.forEach((entry) => {
+                    if (!entry?.world) return;
+                    if (!byWorld.has(entry.world)) byWorld.set(entry.world, []);
+                    byWorld.get(entry.world).push(entry);
+                });
+
+                // Cache settings per world for this loop
+                const settingsCache = new Map();
+
+                // Work on a local copy of activated text; write back at the end
+                let text = String(args?.activated?.text ?? '');
+
+                for (const [world, list] of byWorld.entries()) {
+                    const settings = settingsCache.has(world)
+                        ? settingsCache.get(world)
+                        : await getLorebookSettings(world);
+                    settingsCache.set(world, settings || {});
+
+                    // Resolve per-lorebook budget in tokens for this world
+                    const perBudget = await calculateLorebookBudget(settings, totalBudget);
+
+                    // Only trim when an explicit budget is set (> 0). Default mode returns 0.
+                    if (!(perBudget > 0)) continue;
+
+                    // Sort entries by order desc (mirrors final assembly ordering)
+                    const sorted = list.slice().sort((a, b) => (b.order ?? 100) - (a.order ?? 100));
+
+                    let used = 0;
+                    const toDrop = [];
+                    for (const e of sorted) {
+                        if (e?.ignoreBudget === true) continue; // keep without consuming budget
+                        const tokens = getEntryTokenCountCached(e);
+                        if ((used + tokens) <= perBudget) {
+                            used += tokens;
+                        } else {
+                            toDrop.push(e);
+                        }
+                    }
+
+                    // Apply drops: remove from activated set and strip their content from text
+                    for (const e of toDrop) {
+                        entriesMap.delete(`${e.world}.${e.uid}`);
+                        const slice = typeof e.content === 'string' ? e.content : '';
+                        if (!slice) continue;
+
+                        // Remove all occurrences of the slice from the accumulated text
+                        let idx = text.indexOf(slice);
+                        while (idx !== -1) {
+                            text = text.slice(0, idx) + text.slice(idx + slice.length);
+                            idx = text.indexOf(slice);
+                        }
+                    }
+                }
+
+                // Tidy excessive whitespace after removals
+                args.activated.text = text
+                    .replace(/\n{3,}/g, '\n\n')
+                    .replace(/[ \t]+\n/g, '\n');
+                // Note: We do not force-stop the loop here; accepts one-iteration lag for recursion buffer.
+
+            } catch (e) {
+                console.warn('[STLO] per-loop budget trimmer error:', e);
+            }
+        };
+
+        eventSource.on(event_types.WORLDINFO_SCAN_DONE, onScanDone);
+        eventListeners.push({ source: eventSource, event: event_types.WORLDINFO_SCAN_DONE, handler: onScanDone });
+        console.debug('[STLO] Per-loop budget trimmer registered');
+    } catch (e) {
+        console.warn('[STLO] Failed to register per-loop budget trimmer:', e);
     }
 }

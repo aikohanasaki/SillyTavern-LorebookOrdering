@@ -6,7 +6,7 @@
   "js": "index.js",
   "author": "aikohanasaki",
   "license": "AGPL-3.0",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "homePage": "https://github.com/aikohanasaki/SillyTavern-LorebookOrdering",
   "description": "Allows properly ordering lorebooks for World Info. Also supports character-specific overrides and micro tweaks to lorebook order for group chats."
 }
