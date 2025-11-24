@@ -1794,6 +1794,10 @@ function registerPerLoopBudgetTrimmer() {
 
                     // Apply drops: remove from activated set and strip their content from text
                     for (const e of toDrop) {
+                        // Mirror existing trim log used post-activation
+                        const tokens = getEntryTokenCountCached(e);
+                        console.info('[STLO] Trimmed WI entry:', { world: e.world, uid: e.uid, comment: e?.comment ?? null, tokens });
+
                         entriesMap.delete(`${e.world}.${e.uid}`);
                         const slice = typeof e.content === 'string' ? e.content : '';
                         if (!slice) continue;
