@@ -1377,6 +1377,7 @@ async function applyPriorityOrdering(eventData) {
 
         const processedEntries = [];
         let skippedOnlyWhenSpeaking = 0;
+        const debugRows = DEBUG_STLO ? [] : null;
 
         for (const entry of allEntries) {
             try {
@@ -1407,6 +1408,7 @@ async function applyPriorityOrdering(eventData) {
                 // PRIORITY
                 let priority = settings.priority ?? PRIORITY_LEVELS.DEFAULT;
                 let orderAdjustment = settings.orderAdjustment ?? 0;
+                let overrideApplied = false;
 
                 // Character overrides in group chat
                 if (EXTENSION_STATE.currentSpeakingCharacter && settings.characterOverrides) {
@@ -1414,6 +1416,7 @@ async function applyPriorityOrdering(eventData) {
                     if (override) {
                         priority = override.priority ?? priority;
                         orderAdjustment = override.orderAdjustment ?? orderAdjustment;
+                        overrideApplied = true;
                     }
                 }
 
@@ -1424,6 +1427,20 @@ async function applyPriorityOrdering(eventData) {
 
                 const originalOrder = Math.min(entry.order ?? 100, 9999);
                 entry.order = priority * 10000 + orderAdjustment + originalOrder;
+                if (debugRows) {
+                    debugRows.push({
+                        world: entry.world,
+                        uid: entry.uid,
+                        priorityUsed: priority,
+                        orderAdjustmentUsed: orderAdjustment,
+                        originalOrder,
+                        finalOrder: entry.order,
+                        speaking: Boolean(EXTENSION_STATE.currentSpeakingCharacter),
+                        overrideApplied,
+                        orderAdjustmentGroupOnly: Boolean(settings.orderAdjustmentGroupOnly),
+                        onlyWhenSpeaking: Boolean(settings.onlyWhenSpeaking)
+                    });
+                }
 
                 processedEntries.push(entry);
             } catch (innerErr) {
@@ -1445,6 +1462,20 @@ async function applyPriorityOrdering(eventData) {
             if (aw !== bw) return aw.localeCompare(bw);
             return 0;
         });
+
+        // Debug: show top entries by final order with contributing factors
+        if (DEBUG_STLO && debugRows && debugRows.length) {
+            try {
+                const top = debugRows
+                    .slice()
+                    .sort((a, b) => (b.finalOrder ?? 0) - (a.finalOrder ?? 0))
+                    .slice(0, 30);
+                console.table(top);
+                console.info('[STLO][DEBUG] skippedOnlyWhenSpeaking:', skippedOnlyWhenSpeaking);
+            } catch (e) {
+                console.info('[STLO][DEBUG] failed to log debugRows:', e);
+            }
+        }
 
         // Rebuild arrays: everything into globalLore
         gl.length = 0;
