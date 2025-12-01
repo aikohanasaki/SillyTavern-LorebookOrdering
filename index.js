@@ -57,7 +57,7 @@ const EXTENSION_STATE = {
 const HAS_WORLDINFO_SCAN_DONE = Boolean(event_types && event_types.WORLDINFO_SCAN_DONE);
 
 // Debugging flag and helper
-const DEBUG_STLO = false;
+const DEBUG_STLO = true;
 function stloDebug(...args) {
     if (DEBUG_STLO && typeof console !== 'undefined') {
         console.info('[STLO][DEBUG]', ...args);
