@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v2.2.1 (December 1, 2025)
+- **✨Tweak:** Await entry load and re-order properly at WI loaded instead of backgrounding.
+
 ## v2.2.0 (November 23, 2025)
 - **✨Enhancement:** New setting: "random trim" will randomly trim entries (instead of based on order). Intended for memory lorebooks, random-event lorebooks, world-flavor lorebooks, etc to inject some randomness into recall. When randomTrim is false (default), entries are trimmed based on order (lowest order is trimmed first).
 
