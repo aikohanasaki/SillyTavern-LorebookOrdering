@@ -2,6 +2,9 @@
 
 **← [Back to README](README.md)**
 
+## v2.2.2 (December 2, 2025)
+- **🪲Bugfix:** Checking group chat box should not affect single chats. Fixed.
+
 ## v2.2.1 (December 1, 2025)
 - **✨Tweak:** Await entry load and re-order properly at WI loaded instead of backgrounding.
 

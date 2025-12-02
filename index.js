@@ -1392,12 +1392,8 @@ async function applyPriorityOrdering(eventData) {
 
                 const settings = settingsCache.get(entry.world) || {};
 
-                // FILTERING: onlyWhenSpeaking rules
-                if (settings.onlyWhenSpeaking) {
-                    if (!EXTENSION_STATE.currentSpeakingCharacter) {
-                        skippedOnlyWhenSpeaking++;
-                        continue;
-                    }
+                // FILTERING: onlyWhenSpeaking applies only in group chats (i.e., when a speaker is drafted)
+                if (settings.onlyWhenSpeaking && EXTENSION_STATE.currentSpeakingCharacter) {
                     const hasOverride = settings.characterOverrides
                         ? Object.prototype.hasOwnProperty.call(settings.characterOverrides, EXTENSION_STATE.currentSpeakingCharacter)
                         : false;
